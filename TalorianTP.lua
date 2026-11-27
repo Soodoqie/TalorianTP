@@ -1,5 +1,5 @@
 --[[
-    TalorianTP v4.2.8 (WoW Prime)
+    TalorianTP v4.2.9 (WoW Prime)
     Автоматический телепорт и помощник спутника Талориана.
     Полная поддержка кириллицы UTF-8, навигации по госсип-меню WoW Prime,
     проверенных иконок клиента, базы предметов TalorianLootDB и интеграции с AttuneAtlas.
@@ -7837,10 +7837,17 @@ local function HasBit(mask, bitIdx)
     return math_floor(mask / (2 ^ bitIdx)) % 2 == 1
 end
 
+local function IsFiniteNum(v)
+    return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
+end
+
 local function CountBits(mask)
-    mask = math_floor(tonumber(mask) or 0)
+    local nVal = tonumber(mask)
+    if not IsFiniteNum(nVal) or nVal <= 0 then return 0 end
+    mask = math_floor(nVal)
     local n = 0
-    while mask > 0 do
+    for _ = 1, 53 do
+        if mask <= 0 then break end
         n = n + (mask % 2)
         mask = math_floor(mask / 2)
     end
@@ -8486,24 +8493,83 @@ end
 ---------------------------------------------------------------------------
 local qncOrigMac = nil
 local qncMine, qncOther = "", ""
+local qncInCall = false
+local MAX_QNC_ENTRIES = 12
+local TWO_PI = 2 * math.pi
 
-local function MergeQNC(other, mine)
-    if mine == "" then return other end
-    if other == "" then return mine end
-    return other .. ";" .. mine
+local function NormalizeAngle(ang)
+    if not IsFiniteNum(ang) then return 0 end
+    ang = math.fmod(ang, TWO_PI)
+    if ang > math.pi then
+        ang = ang - TWO_PI
+    elseif ang < -math.pi then
+        ang = ang + TWO_PI
+    end
+    return ang
 end
 
-local function QNCWrapper(key, val, ...)
-    if key == "QNC" then
-        qncOther = val or ""
-        return qncOrigMac("QNC", MergeQNC(qncOther, qncMine))
+local function FormatQncGuid(unit)
+    if type(UnitExists) == "function" and not UnitExists(unit) then return nil end
+    local g = type(UnitGUID) == "function" and UnitGUID(unit)
+    if type(g) ~= "string" or g == "" then return nil end
+    if not g:find("^0[xX]") then g = "0x" .. g end
+    if g:find("^0[xX]0+$") or not g:find("^0[xX]%x+$") then return nil end
+    return g
+end
+
+local function AppendQncParts(out, seen, rawStr)
+    if type(rawStr) ~= "string" or rawStr == "" then return end
+    for token in rawStr:gmatch("[^;]+") do
+        if #out >= MAX_QNC_ENTRIES then break end
+        local guid = token:match("^([^:]+)")
+        if guid and guid ~= "" and not guid:find("^0[xX]0+$") then
+            local key = guid:lower()
+            if not seen[key] then
+                seen[key] = true
+                out[#out + 1] = token
+            end
+        end
     end
-    return qncOrigMac(key, val, ...)
+end
+
+local function MergeQNC(other, mine)
+    if (mine or "") == "" then return other or "" end
+    if (other or "") == "" then return mine or "" end
+    local out, seen = {}, {}
+    -- Prioritize player target/focus before external Cadastre entries (WoWPrime QNC limit is 12)
+    AppendQncParts(out, seen, mine)
+    AppendQncParts(out, seen, other)
+    return table.concat(out, ";")
+end
+
+local function QNCWrapper(key, ...)
+    if type(qncOrigMac) ~= "function" or qncOrigMac == QNCWrapper then
+        return nil
+    end
+    if qncInCall then
+        return qncOrigMac(key, ...)
+    end
+    if key == "QNC" then
+        local val = select(1, ...)
+        qncOther = (type(val) == "string") and val or ""
+        local db = EnsureSCDB()
+        local merged = db.qncEnabled and MergeQNC(qncOther, qncMine) or qncOther
+        qncInCall = true
+        local ok, r1, r2, r3, r4 = pcall(qncOrigMac, "QNC", merged)
+        qncInCall = false
+        if ok then
+            return r1, r2, r3, r4
+        end
+        return 0
+    end
+    return qncOrigMac(key, ...)
 end
 
 function SC:EnsureQNCWrapper()
     local cur = rawget(_G, "IsMacClient")
-    if type(cur) ~= "function" or cur == QNCWrapper then return type(qncOrigMac) == "function" end
+    if type(cur) ~= "function" or cur == QNCWrapper then
+        return type(qncOrigMac) == "function" and qncOrigMac ~= QNCWrapper
+    end
     qncOrigMac = cur
     _G.IsMacClient = QNCWrapper
     return true
@@ -8514,32 +8580,32 @@ function SC:RefreshQNCHighlight()
     if not db.qncEnabled then
         if qncMine ~= "" then
             qncMine = ""
-            if type(qncOrigMac) == "function" then
+            if type(qncOrigMac) == "function" and qncOrigMac ~= QNCWrapper and not qncInCall then
+                qncInCall = true
                 pcall(qncOrigMac, "QNC", qncOther)
+                qncInCall = false
             end
         end
         return
     end
     if not SC:EnsureQNCWrapper() then return end
     local parts, seen = {}, {}
-    local tg = type(UnitGUID) == "function" and UnitGUID("target")
-    if type(tg) == "string" and tg ~= "" then
-        if not tg:find("^0[xX]") then tg = "0x" .. tg end
+    local tg = FormatQncGuid("target")
+    if tg then
         seen[tg:lower()] = true
         parts[#parts + 1] = tg .. ":1.0,0.82,0.15"
     end
-    local fg = type(UnitGUID) == "function" and UnitGUID("focus")
-    if type(fg) == "string" and fg ~= "" then
-        if not fg:find("^0[xX]") then fg = "0x" .. fg end
-        if not seen[fg:lower()] then
-            parts[#parts + 1] = fg .. ":0.22,0.74,0.97"
-        end
+    local fg = FormatQncGuid("focus")
+    if fg and not seen[fg:lower()] then
+        parts[#parts + 1] = fg .. ":0.22,0.74,0.97"
     end
     local nextMine = table.concat(parts, ";")
     if nextMine ~= qncMine then
         qncMine = nextMine
-        if type(qncOrigMac) == "function" then
+        if type(qncOrigMac) == "function" and qncOrigMac ~= QNCWrapper and not qncInCall then
+            qncInCall = true
             pcall(qncOrigMac, "QNC", MergeQNC(qncOther, qncMine))
+            qncInCall = false
         end
     end
 end
@@ -8584,7 +8650,7 @@ local function EnsureHUDFrame()
 
     local acc = 0
     hf:SetScript("OnUpdate", function(self, el)
-        acc = acc + (el or 0)
+        acc = acc + ((IsFiniteNum(el) and el > 0 and el < 10) and el or 0.05)
         if acc < 0.05 then return end
         acc = 0
         SC:UpdateHUDTick()
@@ -8601,11 +8667,12 @@ function SC:SetCustomPinHere()
         return false
     end
     local ok, px, py, pz = pcall(fn, "QNP")
-    if not ok or not px then
+    if not ok or not IsFiniteNum(px) or not IsFiniteNum(py) then
         SetStatus("Координаты 3D-указателя недоступны в этой локации.")
         return false
     end
-    SC.hud.pin = { x = px, y = py, z = pz, label = (type(GetSubZoneText) == "function" and GetSubZoneText()) or "Метка" }
+    local pzSafe = IsFiniteNum(pz) and pz or 0
+    SC.hud.pin = { x = px, y = py, z = pzSafe, label = (type(GetSubZoneText) == "function" and GetSubZoneText()) or "Метка" }
     EnsureSCDB().hudEnabled = true
     SC:UpdateHUDVisibility()
     SetStatus(string.format("3D метка поставлена (%.1f, %.1f).", px, py))
@@ -8627,36 +8694,36 @@ function SC:UpdateHUDTick()
         return
     end
     local okP, px, py, pz, pf = pcall(mac, "QNP")
-    if not okP or not px then
+    if not okP or not IsFiniteNum(px) or not IsFiniteNum(py) then
         hudFrame.dir:SetText("|cff94a3b8Нет 3D позиции|r")
         hudFrame.pin:Hide()
         return
     end
+    local pzSafe = IsFiniteNum(pz) and pz or 0
+    local pfSafe = IsFiniteNum(pf) and pf or 0
 
     local tx, ty, tz, label, col = nil, nil, nil, "", "|cffffd200"
-    if SC.hud.pin then
+    if SC.hud.pin and IsFiniteNum(SC.hud.pin.x) and IsFiniteNum(SC.hud.pin.y) then
         tx, ty, tz, label, col = SC.hud.pin.x, SC.hud.pin.y, SC.hud.pin.z, SC.hud.pin.label or "Метка", "|cff40ff40"
-    elseif type(UnitExists) == "function" and UnitExists("target") then
-        local g = UnitGUID("target")
-        if g and g ~= "" then
-            if not g:find("^0[xX]") then g = "0x" .. g end
-            local okT, ux, uy, uz = pcall(mac, "QNP", g)
-            if okT and ux then
-                tx, ty, tz, label = ux, uy, uz, (UnitName("target") or "Цель")
+    else
+        local gTarget = FormatQncGuid("target")
+        if gTarget then
+            local okT, ux, uy, uz = pcall(mac, "QNP", gTarget)
+            if okT and IsFiniteNum(ux) and IsFiniteNum(uy) then
+                tx, ty, tz, label = ux, uy, (IsFiniteNum(uz) and uz or pzSafe), (UnitName("target") or "Цель")
             end
-        end
-    elseif type(UnitExists) == "function" and UnitExists("focus") then
-        local g = UnitGUID("focus")
-        if g and g ~= "" then
-            if not g:find("^0[xX]") then g = "0x" .. g end
-            local okT, ux, uy, uz = pcall(mac, "QNP", g)
-            if okT and ux then
-                tx, ty, tz, label, col = ux, uy, uz, (UnitName("focus") or "Фокус"), "|cff38bdf8"
+        else
+            local gFocus = FormatQncGuid("focus")
+            if gFocus then
+                local okT, ux, uy, uz = pcall(mac, "QNP", gFocus)
+                if okT and IsFiniteNum(ux) and IsFiniteNum(uy) then
+                    tx, ty, tz, label, col = ux, uy, (IsFiniteNum(uz) and uz or pzSafe), (UnitName("focus") or "Фокус"), "|cff38bdf8"
+                end
             end
         end
     end
 
-    if not tx then
+    if not IsFiniteNum(tx) or not IsFiniteNum(ty) then
         hudFrame.title:SetText("|cff38bdf8Указатель цели|r")
         hudFrame.dir:SetText("|cff94a3b8Выберите цель/фокус или поставьте метку|r")
         hudFrame.pin:Hide()
@@ -8664,12 +8731,10 @@ function SC:UpdateHUDTick()
     end
 
     local dx, dy = tx - px, ty - py
-    local dz = (tz or pz) - pz
+    local dz = (IsFiniteNum(tz) and tz or pzSafe) - pzSafe
     local dist = math_sqrt(dx * dx + dy * dy + dz * dz)
-    local ang = math_atan2(dy, dx) - (pf or 0)
-    -- Normalize relative bearing (-pi..pi)
-    while ang > math.pi do ang = ang - 2 * math.pi end
-    while ang < -math.pi do ang = ang + 2 * math.pi end
+    if not IsFiniteNum(dist) then dist = 0 end
+    local ang = NormalizeAngle(math_atan2(dy, dx) - pfSafe)
     local deg = math_floor(math.deg(ang) + 0.5)
     local arrow = (deg >= -25 and deg <= 25 and "^ ВПЕРЕД")
         or (deg > 25 and deg < 155 and "<- ВЛЕВО")
@@ -8679,8 +8744,8 @@ function SC:UpdateHUDTick()
     hudFrame.title:SetText(col .. Utf8CropChars(label, 24) .. "|r")
     hudFrame.dir:SetText(string.format("%s  |cffffffff%.1f м|r (%d град.)", arrow, dist, deg))
 
-    local okW, sx, sy, _, front = pcall(mac, "QNW", tx, ty, tz or pz)
-    if okW and front == 1 and sx and sy and UIParent then
+    local okW, sx, sy, _, front = pcall(mac, "QNW", tx, ty, IsFiniteNum(tz) and tz or pzSafe)
+    if okW and front == 1 and IsFiniteNum(sx) and IsFiniteNum(sy) and sx >= -0.25 and sx <= 1.25 and sy >= -0.25 and sy <= 1.25 and UIParent then
         local sw, sh = UIParent:GetWidth() or 1024, UIParent:GetHeight() or 768
         hudFrame.pin:ClearAllPoints()
         hudFrame.pin:SetPoint("CENTER", UIParent, "BOTTOMLEFT", sx * sw, sy * sh)

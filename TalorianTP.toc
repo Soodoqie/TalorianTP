@@ -2,7 +2,7 @@
 ## Title: |cff38bdf8TalorianTP|r
 ## Notes: Автоматический телепорт и помощник спутника Талориана (WoW Prime)
 ## Author: DeepSeek & Soodoesqai
-## Version: 4.2.8
+## Version: 4.2.9
 ## SavedVariables: TalorianTP_DB
 ## OptionalDeps: AttuneParser, AttuneAtlas, WCollections, PrimeAttuneCore, PrimeAuctionHouse
 
