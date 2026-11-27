@@ -1,5 +1,5 @@
 --[[
-    TalorianTP v4.2.4 (WoW Prime)
+    TalorianTP v4.2.5 (WoW Prime)
     Автоматический телепорт и помощник спутника Талориана.
     Полная поддержка кириллицы UTF-8, навигации по госсип-меню WoW Prime,
     проверенных иконок клиента, базы предметов TalorianLootDB и интеграции с AttuneAtlas.
@@ -543,6 +543,20 @@ local function IsTalorianSummoned()
     return false, foundInList, nil, customName
 end
 
+local function Utf8LenAndGenitiveStem(s)
+    if type(s) ~= "string" or s == "" then return 0, nil end
+    local count, prevEnd, i, n = 0, 0, 1, #s
+    while i <= n do
+        local b = s:byte(i)
+        local cl = (b >= 240 and 4) or (b >= 224 and 3) or (b >= 192 and 2) or 1
+        if i + cl - 1 > n then break end
+        count = count + 1
+        if i + cl - 1 < n then prevEnd = i + cl - 1 end
+        i = i + cl
+    end
+    return count, (count >= 4 and prevEnd > 0) and s:sub(1, prevEnd) or nil
+end
+
 -- Проверка, что юнит "Талориан" принадлежит именно игроку, который его призвал
 local function IsUnitPlayersTalorian(unit)
     if not (TalorianTP_DB and TalorianTP_DB.enabled) then return false end
@@ -554,9 +568,6 @@ local function IsUnitPlayersTalorian(unit)
         or (TalorianTP_Norm and TalorianTP_Norm(name):find("талориан"))
         or (talCustomName and (name == talCustomName or (TalorianTP_Norm and TalorianTP_Norm(name) == TalorianTP_Norm(talCustomName))))
     if not isTalName then
-        return false
-    end
-    if unit == "target" and type(UnitIsVisible) == "function" and not UnitIsVisible(unit) then
         return false
     end
 
@@ -571,34 +582,39 @@ local function IsUnitPlayersTalorian(unit)
             if ok then
                 local nLines = (tip.NumLines and tip:NumLines()) or 0
                 local pNorm = TalorianTP_Norm and TalorianTP_Norm(playerName) or playerName:lower()
-                local hasOwnerTag = false
+                local _, pStem = Utf8LenAndGenitiveStem(pNorm)
+                local hasOtherOwnerTag = false
                 local matchesPlayer = false
                 for i = 2, math.min(nLines, 5) do
                     local fs = _G["TalorianUnitScanTooltipTextLeft" .. i]
                     local lText = fs and fs:GetText() or (tip.lines and tip.lines[i]) or ""
                     if lText and lText ~= "" then
                         local lNorm = TalorianTP_Norm and TalorianTP_Norm(lText) or lText:lower()
-                        if lText:find(playerName, 1, true) or (pNorm ~= "" and lNorm:find(pNorm, 1, true)) then
+                        if lText:find(playerName, 1, true)
+                            or (pNorm ~= "" and lNorm:find(pNorm, 1, true))
+                            or (pStem and lNorm:find(pStem, 1, true)) then
                             matchesPlayer = true
                             break
                         end
-                        if lNorm:find("спутник") or lNorm:find("прислужник") or lNorm:find("питомец") or lNorm:find("страж") or lNorm:find("companion") or lNorm:find("minion") or lNorm:find("guardian") then
-                            hasOwnerTag = true
+                        if lNorm:find("спутник%s+%S") or lNorm:find("прислужник%s+%S") or lNorm:find("питомец%s+%S") or lNorm:find("страж%s+%S")
+                            or lNorm:find("'s%s+companion") or lNorm:find("'s%s+minion") or lNorm:find("'s%s+pet") then
+                            hasOtherOwnerTag = true
                         end
                     end
                 end
                 tip:Hide()
                 if matchesPlayer then return true end
-                if hasOwnerTag and not matchesPlayer then return false end
+                if hasOtherOwnerTag and not matchesPlayer then return false end
             else
                 tip:Hide()
             end
         end
     end
 
-    -- 2. Резервная проверка: если в тултипе еще нет строки владельца, проверяем активен ли спутник в книге
+    -- 2. Резервная проверка: если в тултипе нет строки владельца, проверяем активен ли спутник (с окном 3с после призыва)
     local isSummoned, foundInList = IsTalorianSummoned()
-    if foundInList and not isSummoned then
+    local now = (type(GetTime) == "function" and GetTime()) or 0
+    if foundInList and not isSummoned and not (lastSummonTime > 0 and now > 0 and (now - lastSummonTime) < 3.0) then
         return false
     end
 
@@ -622,8 +638,8 @@ local function CheckAndMarkTalorian(allowNotice)
     if not (TalorianTP_DB and TalorianTP_DB.enabled) then return false end
 
     local markedAny = false
-    if CanSetRaidMarks() then
-        local unitsToCheck = { "target", "mouseover", "focus", "targettarget" }
+    if TalorianTP_DB.autoMarkDiamond ~= false and CanSetRaidMarks() then
+        local unitsToCheck = { "target", "mouseover", "focus", "npc", "pet", "targettarget", "focustarget" }
         for _, u in ipairs(unitsToCheck) do
             if IsUnitPlayersTalorian(u) then
                 if type(GetRaidTargetIndex) == "function" and type(SetRaidTarget) == "function" then
@@ -695,17 +711,23 @@ local function SummonTalorianIfNeeded()
     return false
 end
 
-local function BuildTalorianSecureMacro(summonOnlyIfNeeded)
-    local isSum, _, _, customName = IsTalorianSummoned()
-    local castName = (type(GetSpellInfo) == "function" and GetSpellInfo(91200)) or "Призыв Талориана"
+local function BuildTalorianTargetLines()
+    local _, _, _, customName = IsTalorianSummoned()
     local tgtLines = "/targetexact Талориан"
     if customName and customName ~= "" and customName ~= "Талориан" then
         tgtLines = "/targetexact " .. customName .. "\n" .. tgtLines
     end
+    return tgtLines
+end
+
+local function BuildTalorianSecureMacro(summonOnlyIfNeeded)
+    local isSum = IsTalorianSummoned()
+    local castName = (type(GetSpellInfo) == "function" and GetSpellInfo(91200)) or "Призыв Талориана"
+    local tgtLines = BuildTalorianTargetLines()
     if summonOnlyIfNeeded and isSum then
         return tgtLines .. "\n/run if CheckAndMarkTalorian then CheckAndMarkTalorian() end"
     end
-    return tgtLines .. "\n/cast [noexists] " .. castName .. "\n" .. tgtLines .. "\n/run if CheckAndMarkTalorian then CheckAndMarkTalorian() end"
+    return "/cleartarget\n" .. tgtLines .. "\n/cast [noexists] " .. castName .. "\n" .. tgtLines .. "\n/run if CheckAndMarkTalorian then CheckAndMarkTalorian() end"
 end
 
 local function EnsureSecureExecButton()
@@ -716,8 +738,23 @@ local function EnsureSecureExecButton()
     end
     btn:SetAttribute("type", "macro")
     local en = TalorianTP_DB and TalorianTP_DB.enabled
-    btn:SetAttribute("macrotext", en and BuildTalorianSecureMacro(false) or "")
+    btn:SetAttribute("macrotext", en and BuildTalorianSecureMacro(true) or "")
     return btn
+end
+
+local function RefreshTalorianOverrideBinding()
+    if InCombatLockdown and InCombatLockdown() then return end
+    if type(GetBindingKey) ~= "function" or type(SetOverrideBindingClick) ~= "function" or type(ClearOverrideBindings) ~= "function" then
+        return
+    end
+    local btn = EnsureSecureExecButton()
+    if not btn then return end
+    ClearOverrideBindings(btn)
+    if TalorianTP_DB and TalorianTP_DB.enabled then
+        local k1, k2 = GetBindingKey("TALORIAN_TP_CURRENT")
+        if k1 then SetOverrideBindingClick(btn, true, k1, "TalorianSecureExecBtn", "LeftButton") end
+        if k2 then SetOverrideBindingClick(btn, true, k2, "TalorianSecureExecBtn", "LeftButton") end
+    end
 end
 
 local function UpdateSecureBtnMacro(btn)
@@ -726,16 +763,24 @@ local function UpdateSecureBtnMacro(btn)
         btn:SetAttribute("macrotext", "")
         return
     end
-    SummonTalorianIfNeeded()
-    btn:SetAttribute("macrotext", BuildTalorianSecureMacro(true))
+    local isSum = IsTalorianSummoned()
+    if isSum then
+        btn:SetAttribute("macrotext", BuildTalorianSecureMacro(true))
+    else
+        lastSummonTime = (type(GetTime) == "function" and GetTime()) or 0
+        targetPollTimer = 4.0
+        targetPollElapsed = 0
+        btn:SetAttribute("macrotext", BuildTalorianSecureMacro(false))
+    end
 end
 
 local function UpdateAllSecureButtonsMacro()
     if InCombatLockdown() then return end
     EnsureSecureExecButton()
+    RefreshTalorianOverrideBinding()
     if not mainUI then return end
     local en = TalorianTP_DB and TalorianTP_DB.enabled
-    local mText = en and BuildTalorianSecureMacro(false) or ""
+    local mText = en and BuildTalorianSecureMacro(true) or ""
     if mainUI.modeBtns then
         for _, b in ipairs(mainUI.modeBtns) do b:SetAttribute("macrotext", mText) end
     end
@@ -917,6 +962,23 @@ local function DeleteCharMacro(name)
     return false
 end
 
+local function BuildCharMacroBody(luaCall)
+    local castName = (type(GetSpellInfo) == "function" and GetSpellInfo(91200)) or "Призыв Талориана"
+    local tgtLines = BuildTalorianTargetLines()
+    local body = "#showtooltip\n/cleartarget\n" .. tgtLines .. "\n/cast [noexists] " .. castName .. "\n" .. tgtLines .. "\n/run " .. luaCall
+    if #body > 255 then
+        local _, _, _, customName = IsTalorianSummoned()
+        if customName and customName ~= "" and customName ~= "Талориан" then
+            local shortTgt = "/tar " .. customName
+            body = "#showtooltip\n/cleartarget\n" .. shortTgt .. "\n/cast [noexists] " .. castName .. "\n" .. shortTgt .. "\n/run " .. luaCall
+        end
+        if #body > 255 then
+            body = "#showtooltip\n/cleartarget\n/targetexact Талориан\n/cast [noexists] " .. castName .. "\n/targetexact Талориан\n/run " .. luaCall
+        end
+    end
+    return body
+end
+
 function TalorianTP_ToggleMacroForDest(destName)
     destName = destName or (TalorianTP_DB and TalorianTP_DB.targetRaid) or "Цитадель Ледяной Короны"
     local tag = GetDestMacroTag(destName)
@@ -925,7 +987,7 @@ function TalorianTP_ToggleMacroForDest(destName)
         DeleteCharMacro(tag)
         DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "Макрос |cffffffff" .. tag .. "|r удален из вкладки персонажа.")
     else
-        local body = "#showtooltip\n/cleartarget\n/targetexact Талориан\n/cast [noexists] Призыв Талориана\n/targetexact Талориан\n/run TalorianTP_SetAndGo(\"" .. destName .. "\")"
+        local body = BuildCharMacroBody("TalorianTP_SetAndGo(\"" .. destName .. "\")")
         local dest = FindDestByName(destName)
         local iconRef = (dest and dest.icon) or "INV_Misc_QuestionMark"
         local created = CreateOrUpdateCharMacro(tag, iconRef, body)
@@ -946,7 +1008,7 @@ function TalorianTP_CreateMacro_TopRaids()
     }
     local count = 0
     for _, r in ipairs(topRaids) do
-        local body = "#showtooltip\n/cleartarget\n/targetexact Талориан\n/cast [noexists] Призыв Талориана\n/targetexact Талориан\n/run TalorianTP_SetAndGo(\"" .. r.name .. "\")"
+        local body = BuildCharMacroBody("TalorianTP_SetAndGo(\"" .. r.name .. "\")")
         if CreateOrUpdateCharMacro(r.tag, r.icon, body) then
             count = count + 1
         end
@@ -966,7 +1028,7 @@ function TalorianTP_Delete_TopRaids()
 end
 
 function TalorianTP_CreateMacro_Buffer()
-    local body = "#showtooltip\n/cleartarget\n/targetexact Талориан\n/cast [noexists] Призыв Талориана\n/targetexact Талориан\n/run TalorianTP_SetModeAndGo(\"buffer\")"
+    local body = BuildCharMacroBody("TalorianTP_SetModeAndGo(\"buffer\")")
     if CreateOrUpdateCharMacro("T_Баффер", "Spell_Holy_GreaterBlessingofKings", body) then
         DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "Макрос Баффера (|cffffd200T_Баффер|r) создан в макросах персонажа.")
     end
@@ -2000,8 +2062,8 @@ local function InitTalorianUI()
         mb.id = m.id
 
         mb:SetAttribute("type", "macro")
-        mb:SetAttribute("macrotext", "/targetexact Талориан\n/cast [noexists] Призыв Талориана\n/targetexact Талориан")
-        mb:RegisterForClicks("AnyDown", "AnyUp")
+        mb:SetAttribute("macrotext", BuildTalorianSecureMacro(true))
+        mb:RegisterForClicks("LeftButtonUp")
 
         local ic = mb:CreateTexture(nil, "ARTWORK")
         ic:SetSize(16, 16)
@@ -2190,8 +2252,8 @@ local function InitTalorianUI()
         qBtn.destName = qr.name
 
         qBtn:SetAttribute("type", "macro")
-        qBtn:SetAttribute("macrotext", "/targetexact Талориан\n/cast [noexists] Призыв Талориана\n/targetexact Талориан")
-        qBtn:RegisterForClicks("AnyDown", "AnyUp")
+        qBtn:SetAttribute("macrotext", BuildTalorianSecureMacro(true))
+        qBtn:RegisterForClicks("LeftButtonUp")
 
         qBtn.txt = qBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         qBtn.txt:SetPoint("CENTER", 0, 0)
@@ -2666,8 +2728,8 @@ local function InitTalorianUI()
         btn:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
 
         btn:SetAttribute("type", "macro")
-        btn:SetAttribute("macrotext", "/targetexact Талориан\n/cast [noexists] Призыв Талориана\n/targetexact Талориан")
-        btn:RegisterForClicks("AnyDown", "AnyUp")
+        btn:SetAttribute("macrotext", BuildTalorianSecureMacro(true))
+        btn:RegisterForClicks("LeftButtonUp")
 
         local ic = btn:CreateTexture(nil, "ARTWORK")
         ic:SetSize(30, 30)
@@ -3545,6 +3607,8 @@ eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:RegisterEvent("GOSSIP_SHOW")
 eventFrame:RegisterEvent("GOSSIP_CLOSED")
 eventFrame:RegisterEvent("GOSSIP_CONFIRM")
+eventFrame:RegisterEvent("MERCHANT_SHOW")
+eventFrame:RegisterEvent("UPDATE_BINDINGS")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 eventFrame:RegisterEvent("UPDATE_INSTANCE_INFO")
@@ -3720,7 +3784,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2)
         end
 
         local k = TalorianTP_DB.interactKey or "ъ"
-        DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "v4.2.1 загружен. Открыть: |cffffd200/ttp|r. Бинд взаимодействия: [|cffffffff" .. k .. "|r]")
+        DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "v4.2.5 загружен. Открыть: |cffffd200/ttp|r. Бинд взаимодействия: [|cffffffff" .. k .. "|r]")
     elseif event == "PLAYER_LOGIN" then
         pcall(EnsureAttuneParserBridge)
         CreateMinimapButton()
@@ -3728,6 +3792,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2)
         RefreshZoneSummaryCache()
         RefreshRaidLocks()
         EnsureSecureExecButton()
+        RefreshTalorianOverrideBinding()
         local k = TalorianTP_DB and TalorianTP_DB.interactKey or "ъ"
         if not InCombatLockdown() and type(GetCurrentBindingSet) == "function" and type(SetBinding) == "function" then
             local curAct = (type(GetBindingAction) == "function") and GetBindingAction(k) or nil
@@ -3743,14 +3808,18 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2)
         end
     elseif event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_FOCUS_CHANGED" or event == "UPDATE_MOUSEOVER_UNIT" then
         CheckAndMarkTalorian(true)
+    elseif event == "UPDATE_BINDINGS" then
+        RefreshTalorianOverrideBinding()
     elseif event == "PLAYER_REGEN_ENABLED" then
         if TalorianTP_DB and TalorianTP_DB.enabled then
             SummonTalorianIfNeeded()
         end
         UpdateAllSecureButtonsMacro()
-        EnsureSecureExecButton()
     elseif event == "GOSSIP_SHOW" then
+        CheckAndMarkTalorian(false)
         ProcessGossip()
+    elseif event == "MERCHANT_SHOW" then
+        CheckAndMarkTalorian(false)
     elseif event == "GOSSIP_CLOSED" or event == "GOSSIP_CONFIRM" then
         isTeleporting = false
         confirmTimer = 0
@@ -3793,6 +3862,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2)
             else
                 CheckAndMarkTalorian(false)
             end
+            UpdateAllSecureButtonsMacro()
         end
         local ap = rawget(_G, "AttuneParser")
         if ap and ap.Fire then ap:Fire("TALORIAN_BRIDGE_UPDATED") end
