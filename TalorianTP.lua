@@ -1,5 +1,5 @@
 --[[
-    TalorianTP v4.2.7 (WoW Prime)
+    TalorianTP v4.2.8 (WoW Prime)
     Автоматический телепорт и помощник спутника Талориана.
     Полная поддержка кириллицы UTF-8, навигации по госсип-меню WoW Prime,
     проверенных иконок клиента, базы предметов TalorianLootDB и интеграции с AttuneAtlas.
@@ -1861,6 +1861,272 @@ do
         end
         PS.PaintBtn(b, kind or "dark")
     end
+    function PS.AttachScroll(parent, listHeight, rowH, visCount, onUpdateFn, globalName)
+        local sf = CreateFrame("Frame", globalName, parent)
+        sf.offset = 0
+        sf._offset = 0
+        sf.total = 0
+        sf.visCount = visCount
+        sf:EnableMouseWheel(true)
+
+        local BTN_H = 16
+        local bar = CreateFrame("Frame", nil, sf)
+        bar:SetWidth(14)
+        bar:SetHeight(math.max(40, (listHeight or 100) - 4))
+        bar:SetPoint("TOPRIGHT", sf, "TOPRIGHT", 0, -2)
+        bar:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", 0, 2)
+        bar:SetFrameLevel(((sf.GetFrameLevel and sf:GetFrameLevel()) or 1) + 6)
+        bar:EnableMouse(true)
+        bar:EnableMouseWheel(true)
+        PS.StyleBox(bar, 0.72, false)
+
+        local isDragging, dragStartY, dragStartOff = false, 0, 0
+        local up, dn, thumb
+
+        local function getCursorY()
+            if type(GetCursorPosition) ~= "function" then return nil end
+            local _, cy = GetCursorPosition()
+            if not cy then return nil end
+            local sc = (bar.GetEffectiveScale and bar:GetEffectiveScale()) or 1
+            if not sc or sc <= 0 then sc = 1 end
+            return cy / sc
+        end
+
+        local function paintThumb(active)
+            if not thumb then return end
+            if active then
+                thumb:SetBackdropColor(0.98, 0.78, 0.30, 1.0)
+                thumb:SetBackdropBorderColor(1.0, 0.92, 0.54, 1.0)
+            else
+                thumb:SetBackdropColor(0.82, 0.63, 0.22, 0.92)
+                thumb:SetBackdropBorderColor(1.0, 0.86, 0.38, 0.95)
+            end
+        end
+
+        local function clampAndRefresh(newOff)
+            local maxOff = math.max(0, (sf.total or 0) - visCount)
+            newOff = math.floor((newOff or 0) + 0.5)
+            if newOff < 0 then newOff = 0 end
+            if newOff > maxOff then newOff = maxOff end
+            sf.offset = newOff
+            sf._offset = newOff
+            if maxOff <= 0 then
+                isDragging = false
+                bar:Hide()
+            else
+                bar:Show()
+                local bTop = bar.GetTop and bar:GetTop()
+                local bBot = bar.GetBottom and bar:GetBottom()
+                local bh = (bTop and bBot and (bTop > bBot)) and (bTop - bBot) or bar:GetHeight()
+                if not bh or bh <= 1 then bh = math.max(40, (listHeight or 100) - 4) end
+                local trackH = math.max(24, bh - (BTN_H * 2 + 4))
+                local thumbH = math.max(20, math.floor(trackH * (visCount / math.max(1, sf.total))))
+                if thumbH > trackH then thumbH = trackH end
+                local travel = math.max(0, trackH - thumbH)
+                sf._trackH = trackH
+                sf._thumbH = thumbH
+                sf._travel = travel
+                if thumb then
+                    thumb:SetHeight(thumbH)
+                    local yOff = (maxOff > 0) and math.floor(travel * (sf.offset / maxOff) + 0.5) or 0
+                    thumb:ClearAllPoints()
+                    thumb:SetPoint("TOP", bar, "TOP", 0, -(BTN_H + 2 + yOff))
+                end
+            end
+            if onUpdateFn then onUpdateFn(sf.offset) end
+        end
+
+        local function makeArrow(isUp)
+            local b = CreateFrame("Button", nil, bar)
+            b:SetSize(14, BTN_H)
+            b:SetPoint(isUp and "TOP" or "BOTTOM", bar, isUp and "TOP" or "BOTTOM", 0, 0)
+            b:SetFrameLevel(((bar.GetFrameLevel and bar:GetFrameLevel()) or 1) + 2)
+            b:EnableMouse(true)
+            b:EnableMouseWheel(true)
+            PS.StyleBox(b, 0.92, false)
+            b:SetBackdropBorderColor(0.58, 0.48, 0.25, 0.92)
+            local hl = b:CreateTexture(nil, "HIGHLIGHT")
+            hl:SetPoint("TOPLEFT", 1, -1)
+            hl:SetPoint("BOTTOMRIGHT", -1, 1)
+            hl:SetTexture(0.95, 0.78, 0.28, 0.28)
+            b:SetHighlightTexture(hl)
+            local fs = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            fs:SetPoint("CENTER", 0, isUp and -1 or 1)
+            fs:SetText(isUp and "^" or "v")
+            fs:SetTextColor(0.98, 0.84, 0.36)
+            b._fs = fs
+            local stepMag = math.max(1, math.floor(visCount / 5))
+            b._step = isUp and -stepMag or stepMag
+            b:SetScript("OnEnter", function(self)
+                self:SetBackdropBorderColor(0.96, 0.78, 0.30, 1)
+            end)
+            b:SetScript("OnLeave", function(self)
+                if not self._held then self:SetBackdropBorderColor(0.58, 0.48, 0.25, 0.92) end
+            end)
+            b:SetScript("OnMouseDown", function(self, mBtn)
+                if mBtn and mBtn ~= "LeftButton" then return end
+                self._held = true
+                self._holdT = 0
+                self._repT = 0
+                self._upAt = nil
+                self._mouseStepped = true
+                self:SetBackdropBorderColor(1.0, 0.86, 0.36, 1)
+                clampAndRefresh((sf.offset or 0) + self._step)
+            end)
+            b:SetScript("OnMouseUp", function(self)
+                self._held = false
+                self._holdT = 0
+                self._repT = 0
+                self._upAt = 0
+                self:SetBackdropBorderColor(0.58, 0.48, 0.25, 0.92)
+            end)
+            b:SetScript("OnClick", function(self)
+                if self._mouseStepped then
+                    self._mouseStepped = false
+                    self._upAt = nil
+                    return
+                end
+                clampAndRefresh((sf.offset or 0) + self._step)
+            end)
+            return b
+        end
+
+        up = makeArrow(true)
+        dn = makeArrow(false)
+
+        thumb = CreateFrame("Button", nil, bar)
+        thumb:SetSize(12, 24)
+        thumb:SetPoint("TOP", bar, "TOP", 0, -(BTN_H + 2))
+        thumb:SetFrameLevel(((bar.GetFrameLevel and bar:GetFrameLevel()) or 1) + 2)
+        thumb:EnableMouse(true)
+        thumb:EnableMouseWheel(true)
+        PS.StyleBox(thumb, 0.94, true)
+        paintThumb(false)
+        local thl = thumb:CreateTexture(nil, "HIGHLIGHT")
+        thl:SetPoint("TOPLEFT", 1, -1)
+        thl:SetPoint("BOTTOMRIGHT", -1, 1)
+        thl:SetTexture(1.0, 0.88, 0.42, 0.26)
+        thumb:SetHighlightTexture(thl)
+
+        thumb:SetScript("OnEnter", function() paintThumb(true) end)
+        thumb:SetScript("OnLeave", function() if not isDragging then paintThumb(false) end end)
+        thumb:SetScript("OnMouseDown", function(_, mBtn)
+            if mBtn and mBtn ~= "LeftButton" then return end
+            local maxOff = math.max(0, (sf.total or 0) - visCount)
+            if maxOff <= 0 then return end
+            local cy = getCursorY()
+            dragStartY = cy or 0
+            dragStartOff = sf.offset or 0
+            isDragging = (cy ~= nil)
+            paintThumb(true)
+        end)
+        thumb:SetScript("OnMouseUp", function()
+            isDragging = false
+            paintThumb(false)
+        end)
+
+        bar:SetScript("OnMouseDown", function(self, mBtn)
+            if mBtn and mBtn ~= "LeftButton" then return end
+            local maxOff = math.max(0, (sf.total or 0) - visCount)
+            if maxOff <= 0 then return end
+            local cy = getCursorY()
+            local bTop = self.GetTop and self:GetTop()
+            local travel = sf._travel or 0
+            if cy and bTop and travel > 0 then
+                local frac = ((bTop - (BTN_H + 2)) - (sf._thumbH or 20) * 0.5 - cy) / travel
+                if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
+                clampAndRefresh(math.floor(frac * maxOff + 0.5))
+                dragStartY = cy
+                dragStartOff = sf.offset or 0
+                isDragging = true
+                paintThumb(true)
+            else
+                local pg = math.max(1, visCount - 1)
+                local bCen = (bTop and self.GetBottom and self:GetBottom()) and ((bTop + self:GetBottom()) * 0.5)
+                if cy and bCen and cy > bCen then pg = -pg end
+                clampAndRefresh((sf.offset or 0) + pg)
+            end
+        end)
+        bar:SetScript("OnMouseUp", function()
+            isDragging = false
+            paintThumb(false)
+        end)
+        bar:SetScript("OnHide", function()
+            isDragging = false
+            up._held = false; up._mouseStepped = false; up._upAt = nil
+            dn._held = false; dn._mouseStepped = false; dn._upAt = nil
+            paintThumb(false)
+        end)
+        bar:SetScript("OnUpdate", function(_, elapsed)
+            if not isDragging and not up._held and not dn._held and not up._mouseStepped and not dn._mouseStepped then
+                return
+            end
+            local el = elapsed or 0
+            if isDragging then
+                local cy = getCursorY()
+                local travel = sf._travel or 0
+                local maxOff = math.max(0, (sf.total or 0) - visCount)
+                if cy and travel > 0 and maxOff > 0 then
+                    local dy = dragStartY - cy
+                    local tgt = math.floor(dragStartOff + (dy / travel) * maxOff + 0.5)
+                    if tgt < 0 then tgt = 0 elseif tgt > maxOff then tgt = maxOff end
+                    if tgt ~= (sf.offset or 0) then clampAndRefresh(tgt) end
+                end
+            end
+            for _, btn in ipairs({ up, dn }) do
+                if btn._held then
+                    btn._holdT = (btn._holdT or 0) + el
+                    if btn._holdT >= 0.28 then
+                        btn._repT = (btn._repT or 0) + el
+                        if btn._repT >= 0.065 then
+                            btn._repT = 0
+                            clampAndRefresh((sf.offset or 0) + btn._step)
+                        end
+                    end
+                elseif btn._mouseStepped then
+                    btn._upAt = (btn._upAt or 0) + el
+                    if btn._upAt >= 0.12 then
+                        btn._mouseStepped = false
+                        btn._upAt = nil
+                    end
+                end
+            end
+        end)
+
+        local function onWheel(_, delta)
+            local step = (delta > 0) and -2 or 2
+            clampAndRefresh((sf.offset or 0) + step)
+        end
+        sf:SetScript("OnMouseWheel", onWheel)
+        bar:SetScript("OnMouseWheel", onWheel)
+        up:SetScript("OnMouseWheel", onWheel)
+        dn:SetScript("OnMouseWheel", onWheel)
+        thumb:SetScript("OnMouseWheel", onWheel)
+
+        function sf:SetTotal(totalCount, keepOffset)
+            sf.total = totalCount or 0
+            clampAndRefresh(keepOffset and (sf.offset or 0) or 0)
+        end
+        function sf:SyncCount(totalCount)
+            if self._inSync then return end
+            self._inSync = true
+            self._skipRender = true
+            self:SetTotal(totalCount or 0, true)
+            self._skipRender = false
+            self._inSync = false
+        end
+        sf._bar = bar
+        sf._up = up
+        sf._dn = dn
+        sf._thumb = thumb
+        sf._OnWheel = function(arg1, arg2, arg3)
+            onWheel(sf, (type(arg1) == "number" and arg1) or (type(arg2) == "number" and arg2) or arg3 or 0)
+        end
+        sf._ScrollTo = function(arg1, arg2)
+            clampAndRefresh((type(arg1) == "number" and arg1) or arg2 or 0)
+        end
+        return sf
+    end
     TalorianTP.Skin = PS
 end
 
@@ -3685,7 +3951,7 @@ local function CreateMinimapButton()
     btn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:ClearLines()
-        GameTooltip:AddLine("Talorian v4.2.7", 0.2, 0.7, 1)
+        GameTooltip:AddLine("Talorian v4.2.8", 0.2, 0.7, 1)
         GameTooltip:AddLine("ЛКМ: открыть/закрыть окно аддона", 1, 1, 1)
         GameTooltip:AddLine("ПКМ: быстрое включение/отключение", 0.8, 0.8, 0.8)
         GameTooltip:AddLine("Перетаскивание: перемещение по миникарте", 0.6, 0.6, 0.6)
@@ -3892,7 +4158,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2)
         end
 
         local k = TalorianTP_DB.interactKey or "ъ"
-        DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "v4.2.7 загружен. Открыть: |cffffd200/ttp|r. Бинд взаимодействия: [|cffffffff" .. k .. "|r]")
+        DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "v4.2.8 загружен. Открыть: |cffffd200/ttp|r. Бинд взаимодействия: [|cffffffff" .. k .. "|r]")
     elseif event == "PLAYER_LOGIN" then
         pcall(EnsureAttuneParserBridge)
         CreateMinimapButton()
@@ -5480,9 +5746,13 @@ do
 
         local sf = f.itemScroll
         local rows = f.itemRows
-        FauxScrollFrame_Update(sf, #items, #rows, ITEM_ROW_H)
-        local offset = math.min(FauxScrollFrame_GetOffset(sf) or sf._offset or 0, math.max(0, #items - #rows))
-        sf._offset = offset
+        if sf and sf.SyncCount then
+            sf:SyncCount(#items)
+        else
+            FauxScrollFrame_Update(sf, #items, #rows, ITEM_ROW_H)
+        end
+        local offset = math.min((sf and sf.offset) or (sf and sf._offset) or 0, math.max(0, #items - #rows))
+        if sf then sf._offset = offset end
 
         for i = 1, #rows do
             local r = rows[i]
@@ -5529,9 +5799,13 @@ do
         local zones = expState.zones
         local rows = f.zoneRows
         local sf = f.zoneScroll
-        FauxScrollFrame_Update(sf, #zones, #rows, ZONE_ROW_H)
-        local offset = math.min(FauxScrollFrame_GetOffset(sf) or sf._offset or 0, math.max(0, #zones - #rows))
-        sf._offset = offset
+        if sf and sf.SyncCount then
+            sf:SyncCount(#zones)
+        else
+            FauxScrollFrame_Update(sf, #zones, #rows, ZONE_ROW_H)
+        end
+        local offset = math.min((sf and sf.offset) or (sf and sf._offset) or 0, math.max(0, #zones - #rows))
+        if sf then sf._offset = offset end
 
         for i = 1, #rows do
             local r = rows[i]
@@ -5787,10 +6061,12 @@ do
         -- Строки фильтров
         local function ResetExplorerScrolls()
             if f.zoneScroll then
+                f.zoneScroll.offset = 0
                 f.zoneScroll._offset = 0
                 if type(FauxScrollFrame_SetOffset) == "function" then FauxScrollFrame_SetOffset(f.zoneScroll, 0) end
             end
             if f.itemScroll then
+                f.itemScroll.offset = 0
                 f.itemScroll._offset = 0
                 if type(FauxScrollFrame_SetOffset) == "function" then FauxScrollFrame_SetOffset(f.itemScroll, 0) end
             end
@@ -5820,6 +6096,7 @@ do
         local statusBtns, stEndX = CreateFilterRow(f, EXP_STATUS_BTNS, -77, 16, function(id)
             expState.status = id
             if f.itemScroll then
+                f.itemScroll.offset = 0
                 f.itemScroll._offset = 0
                 if type(FauxScrollFrame_SetOffset) == "function" then FauxScrollFrame_SetOffset(f.itemScroll, 0) end
             end
@@ -5873,23 +6150,21 @@ do
         leftBox:SetSize(256, 404)
         PS.StyleBox(leftBox, 0.42)
 
-        local zsf = CreateFrame("ScrollFrame", "TalorianExplorerZoneScroll", leftBox, "FauxScrollFrameTemplate")
-        zsf:SetPoint("TOPLEFT", 2, -4)
-        zsf:SetPoint("BOTTOMRIGHT", -24, 4)
+        local zsf
+        zsf = PS.AttachScroll(leftBox, VIS_ZONES * ZONE_ROW_H, ZONE_ROW_H, VIS_ZONES, function(off)
+            if zsf and not zsf._skipRender then
+                zsf._offset = off
+                RenderZoneList()
+            end
+        end, "TalorianExplorerZoneScroll")
+        zsf:SetPoint("TOPLEFT", leftBox, "TOPLEFT", 2, -3)
+        zsf:SetPoint("BOTTOMRIGHT", leftBox, "BOTTOMRIGHT", -4, 3)
         zsf._offset = 0
-        zsf:SetScript("OnVerticalScroll", function(self, offset)
-            FauxScrollFrame_OnVerticalScroll(self, offset, ZONE_ROW_H, RenderZoneList)
-        end)
         f.zoneScroll = zsf
 
         leftBox:EnableMouseWheel(true)
         leftBox:SetScript("OnMouseWheel", function(_, delta)
-            local cur = FauxScrollFrame_GetOffset(zsf) or zsf._offset or 0
-            local maxOff = math.max(0, #(expState.zones or {}) - VIS_ZONES)
-            local nxt = math.max(0, math.min(maxOff, cur - delta))
-            zsf._offset = nxt
-            if type(FauxScrollFrame_SetOffset) == "function" then FauxScrollFrame_SetOffset(zsf, nxt) end
-            RenderZoneList()
+            if zsf._OnWheel then zsf:_OnWheel(delta) end
         end)
 
         local zoneRows = {}
@@ -5940,6 +6215,7 @@ do
                 if not self.zoneRec then return end
                 expState.selZoneName = self.zoneRec.dest.name
                 if f.itemScroll then
+                    f.itemScroll.offset = 0
                     f.itemScroll._offset = 0
                     if type(FauxScrollFrame_SetOffset) == "function" then FauxScrollFrame_SetOffset(f.itemScroll, 0) end
                 end
@@ -5997,23 +6273,21 @@ do
         rightBox:SetPoint("BOTTOMRIGHT", -16, 46)
         PS.StyleBox(rightBox, 0.42)
 
-        local isf = CreateFrame("ScrollFrame", "TalorianExplorerItemScroll", rightBox, "FauxScrollFrameTemplate")
-        isf:SetPoint("TOPLEFT", 2, -4)
-        isf:SetPoint("BOTTOMRIGHT", -24, 4)
+        local isf
+        isf = PS.AttachScroll(rightBox, VIS_ITEMS * ITEM_ROW_H, ITEM_ROW_H, VIS_ITEMS, function(off)
+            if isf and not isf._skipRender then
+                isf._offset = off
+                RefreshExplorerItems()
+            end
+        end, "TalorianExplorerItemScroll")
+        isf:SetPoint("TOPLEFT", rightBox, "TOPLEFT", 2, -3)
+        isf:SetPoint("BOTTOMRIGHT", rightBox, "BOTTOMRIGHT", -4, 3)
         isf._offset = 0
-        isf:SetScript("OnVerticalScroll", function(self, offset)
-            FauxScrollFrame_OnVerticalScroll(self, offset, ITEM_ROW_H, RefreshExplorerItems)
-        end)
         f.itemScroll = isf
 
         rightBox:EnableMouseWheel(true)
         rightBox:SetScript("OnMouseWheel", function(_, delta)
-            local cur = FauxScrollFrame_GetOffset(isf) or isf._offset or 0
-            local maxOff = math.max(0, #(expState.items or {}) - VIS_ITEMS)
-            local nxt = math.max(0, math.min(maxOff, cur - delta))
-            isf._offset = nxt
-            if type(FauxScrollFrame_SetOffset) == "function" then FauxScrollFrame_SetOffset(isf, nxt) end
-            RefreshExplorerItems()
+            if isf._OnWheel then isf:_OnWheel(delta) end
         end)
 
         local itemRows = {}
@@ -6337,8 +6611,13 @@ do
 
         local rows = topFrame.rows
         local numRows = #rows
-        FauxScrollFrame_Update(topFrame.scrollFrame, #topRowsData, numRows, 24)
-        local offset = math.min(FauxScrollFrame_GetOffset(topFrame.scrollFrame) or 0, math.max(0, #topRowsData - numRows))
+        local tsf = topFrame.scrollFrame
+        if tsf and tsf.SyncCount then
+            tsf:SyncCount(#topRowsData)
+        else
+            FauxScrollFrame_Update(tsf, #topRowsData, numRows, 24)
+        end
+        local offset = math.min((tsf and tsf.offset) or (tsf and tsf._offset) or 0, math.max(0, #topRowsData - numRows))
 
         for i = 1, numRows do
             local r = rows[i]
@@ -6487,7 +6766,8 @@ do
             topOpt.wedMode = not topOpt.wedMode
             topOpt.wedAutoInit = true
             PaintFilterPills()
-            FauxScrollFrame_SetOffset(f.scrollFrame, 0)
+            if f.scrollFrame then f.scrollFrame.offset = 0; f.scrollFrame._offset = 0 end
+            if type(FauxScrollFrame_SetOffset) == "function" then FauxScrollFrame_SetOffset(f.scrollFrame, 0) end
             RefreshTopDisplay()
         end)
         wedBtn:SetScript("OnEnter", function(self)
@@ -6501,7 +6781,8 @@ do
         noCdBtn:SetScript("OnClick", function()
             topOpt.onlyUnlocked = not topOpt.onlyUnlocked
             PaintFilterPills()
-            FauxScrollFrame_SetOffset(f.scrollFrame, 0)
+            if f.scrollFrame then f.scrollFrame.offset = 0; f.scrollFrame._offset = 0 end
+            if type(FauxScrollFrame_SetOffset) == "function" then FauxScrollFrame_SetOffset(f.scrollFrame, 0) end
             RefreshTopDisplay()
         end)
         noCdBtn:SetScript("OnEnter", function(self)
@@ -6618,7 +6899,8 @@ do
             mb:SetScript("OnClick", function()
                 topMode = md.id
                 UpdateTopModeButtons()
-                FauxScrollFrame_SetOffset(f.scrollFrame, 0)
+                if f.scrollFrame then f.scrollFrame.offset = 0; f.scrollFrame._offset = 0 end
+                if type(FauxScrollFrame_SetOffset) == "function" then FauxScrollFrame_SetOffset(f.scrollFrame, 0) end
                 RefreshTopDisplay()
             end)
             mb:SetScript("OnEnter", function(self)
@@ -6636,16 +6918,25 @@ do
 
         local scrollBox = CreateFrame("Frame", nil, f)
         scrollBox:SetPoint("TOPLEFT", 16, -114)
-        scrollBox:SetPoint("BOTTOMRIGHT", -36, 44)
+        scrollBox:SetPoint("BOTTOMRIGHT", -16, 44)
         PS.StyleBox(scrollBox, 0.42)
 
-        local sf = CreateFrame("ScrollFrame", "TalorianTopScrollFrame", scrollBox, "FauxScrollFrameTemplate")
-        sf:SetPoint("TOPLEFT", 0, -2)
-        sf:SetPoint("BOTTOMRIGHT", -2, 2)
-        sf:SetScript("OnVerticalScroll", function(self, offset)
-            FauxScrollFrame_OnVerticalScroll(self, offset, 24, RefreshTopDisplay)
-        end)
+        local sf
+        sf = PS.AttachScroll(scrollBox, 14 * 24, 24, 14, function(off)
+            if sf and not sf._skipRender then
+                sf._offset = off
+                RefreshTopDisplay()
+            end
+        end, "TalorianTopScrollFrame")
+        sf:SetPoint("TOPLEFT", scrollBox, "TOPLEFT", 2, -2)
+        sf:SetPoint("BOTTOMRIGHT", scrollBox, "BOTTOMRIGHT", -4, 2)
+        sf._offset = 0
         f.scrollFrame = sf
+
+        scrollBox:EnableMouseWheel(true)
+        scrollBox:SetScript("OnMouseWheel", function(_, delta)
+            if sf._OnWheel then sf:_OnWheel(delta) end
+        end)
 
         local rows = {}
         for i = 1, 14 do
