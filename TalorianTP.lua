@@ -1,5 +1,5 @@
 --[[
-    TalorianTP v4.2 (WoW Prime)
+    TalorianTP v4.2.1 (WoW Prime)
     Автоматический телепорт и помощник спутника Талориана.
     Полная поддержка кириллицы UTF-8, навигации по госсип-меню WoW Prime,
     проверенных иконок клиента, базы предметов TalorianLootDB и интеграции с AttuneAtlas.
@@ -1798,6 +1798,15 @@ end
 ---------------------------------------------------------------------------
 -- Основной интерфейс (Midnight Blue UI)
 ---------------------------------------------------------------------------
+local function RegisterSpecialFrame(name)
+    if not name or name == "" then return end
+    _G.UISpecialFrames = _G.UISpecialFrames or {}
+    for _, v in ipairs(_G.UISpecialFrames) do
+        if v == name then return end
+    end
+    table.insert(_G.UISpecialFrames, name)
+end
+
 local function InitTalorianUI()
     if mainUI then return mainUI end
 
@@ -1822,8 +1831,13 @@ local function InitTalorianUI()
     f:SetScript("OnDragStart", f.StartMoving)
     f:SetScript("OnDragStop", f.StopMovingOrSizing)
     f:SetClampedToScreen(true)
+    f:SetScript("OnHide", function()
+        local eb = rawget(_G, "TalorianBugLinkEditBox")
+        if eb and eb.ClearFocus then eb:ClearFocus() end
+    end)
 
     PS.ApplyWindow(f)
+    RegisterSpecialFrame("TalorianMainFrame")
 
     -- Заголовок
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
@@ -2946,6 +2960,11 @@ local function InitTalorianUI()
             end
         end
 
+        if tabId ~= 4 then
+            local eb = rawget(_G, "TalorianBugLinkEditBox")
+            if eb and eb.ClearFocus then eb:ClearFocus() end
+        end
+
         self:UpdateDiffHighlight()
         self:RefreshButtons()
     end
@@ -3386,7 +3405,7 @@ local function CreateMinimapButton()
     btn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:ClearLines()
-        GameTooltip:AddLine("Talorian v4.2", 0.2, 0.7, 1)
+        GameTooltip:AddLine("Talorian v4.2.1", 0.2, 0.7, 1)
         GameTooltip:AddLine("ЛКМ: открыть/закрыть окно аддона", 1, 1, 1)
         GameTooltip:AddLine("ПКМ: быстрое включение/отключение", 0.8, 0.8, 0.8)
         GameTooltip:AddLine("Перетаскивание: перемещение по миникарте", 0.6, 0.6, 0.6)
@@ -3591,7 +3610,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2)
         end
 
         local k = TalorianTP_DB.interactKey or "ъ"
-        DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "v4.2 загружен. Открыть: |cffffd200/ttp|r. Бинд взаимодействия: [|cffffffff" .. k .. "|r]")
+        DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "v4.2.1 загружен. Открыть: |cffffd200/ttp|r. Бинд взаимодействия: [|cffffffff" .. k .. "|r]")
     elseif event == "PLAYER_LOGIN" then
         pcall(EnsureAttuneParserBridge)
         CreateMinimapButton()
@@ -4895,6 +4914,7 @@ local function CreateAnalysisWindow()
     f:SetScript("OnDragStart", function(self) self:StartMoving() end)
     f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
     PS.ApplyWindow(f)
+    RegisterSpecialFrame("TalorianAnalysisFrame")
 
     -- Заголовок
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -5345,6 +5365,7 @@ do
         f:SetScript("OnDragStart", function(self) self:StartMoving() end)
         f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); self._userMoved = true end)
         PS.ApplyWindow(f)
+        RegisterSpecialFrame("TalorianTopFrame")
 
         local title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         title:SetPoint("TOPLEFT", 16, -14)
@@ -5913,6 +5934,7 @@ do
         f:SetScript("OnDragStart", function(self) self:StartMoving() end)
         f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); self._userMoved = true end)
         PS.ApplyWindow(f)
+        RegisterSpecialFrame("TalorianAuctionFrame")
 
         local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         title:SetPoint("TOPLEFT", 12, -10)
