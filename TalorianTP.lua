@@ -1,5 +1,5 @@
 --[[
-    TalorianTP v4.2.6 (WoW Prime)
+    TalorianTP v4.2.7 (WoW Prime)
     Автоматический телепорт и помощник спутника Талориана.
     Полная поддержка кириллицы UTF-8, навигации по госсип-меню WoW Prime,
     проверенных иконок клиента, базы предметов TalorianLootDB и интеграции с AttuneAtlas.
@@ -141,7 +141,7 @@ local RAID_DESTS = {
 -- Подземелья (52): WotLK (16), TBC (16), Vanilla (20)
 ---------------------------------------------------------------------------
 local DUNGEONS_WOTLK = {
-    { name = "Азжол-Неруб",                 short = "АН",   exp = "WotLK", isRaid = false, achieve = 480,  attune = 4277, icon = "Achievement_Dungeon_AzjolLowercity_Normal", aliases = {"азжол неруб", "ан"} },
+    { name = "Азжол-Неруб",                 short = "АН",   exp = "WotLK", isRaid = false, achieve = 480,  attune = 4277, icon = "Achievement_Dungeon_AzjolLowercity_Normal", aliases = {"азжол неруб"} },
     { name = "Ан'кахет: Старое Королевство", short = "АК",  exp = "WotLK", isRaid = false, achieve = 481,  attune = 4494, icon = "Achievement_Dungeon_AzjolUppercity_Normal", aliases = {"ан кахет", "старое королевство", "анкахет", "ак"} },
     { name = "Крепость Утгард",             short = "КУ",   exp = "WotLK", isRaid = false, achieve = 477,  attune = 206,  icon = "Achievement_Dungeon_UtgardeKeep_Normal", aliases = {"крепость утгард", "утгард крепость", "ку"} },
     { name = "Вершина Утгард",              short = "ВУ",   exp = "WotLK", isRaid = false, achieve = 488,  attune = 1196, icon = "Achievement_Dungeon_UtgardePinnacle_Normal", aliases = {"вершина утгард", "утгард вершина", "ву"} },
@@ -166,7 +166,7 @@ local DUNGEONS_TBC = {
     { name = "Узилище",                     short = "Уз",  exp = "TBC", isRaid = false, achieve = 650, attune = 3717, icon = "Achievement_Boss_Quagmirran", aliases = {"узилище", "уз"} },
     { name = "Нижетопь",                    short = "НТ",  exp = "TBC", isRaid = false, achieve = 651, attune = 3716, icon = "Achievement_Boss_TheBlackStalker", aliases = {"нижетопь", "нт"} },
     { name = "Паровое подземелье",          short = "ПП",  exp = "TBC", isRaid = false, achieve = 652, attune = 3715, icon = "Achievement_Boss_Warlord_Kalithresh", aliases = {"паровое подземелье", "парник", "пп"} },
-    { name = "Гробницы Маны",               short = "ГМ",  exp = "TBC", isRaid = false, achieve = 653, attune = 3792, icon = "Achievement_Boss_Nexus_Prince_Shaffar", aliases = {"гробницы маны", "гробницы", "гм"} },
+    { name = "Гробницы Маны",               short = "ГМ",  exp = "TBC", isRaid = false, achieve = 653, attune = 3792, icon = "Achievement_Boss_Nexus_Prince_Shaffar", aliases = {"гробницы маны", "гм"} },
     { name = "Аукенайские гробницы",        short = "Аук", exp = "TBC", isRaid = false, achieve = 654, attune = 3790, icon = "Achievement_Boss_Exarch_Maladaar", aliases = {"аукенайские гробницы", "аукенай", "аук"} },
     { name = "Сетеккские залы",             short = "Сетек",exp = "TBC", isRaid = false, achieve = 655, attune = 3791, icon = "Achievement_Boss_TalonKingIkiss", aliases = {"сетеккские залы", "сетекк", "сетекки"} },
     { name = "Темный лабиринт",             short = "ТЛ",  exp = "TBC", isRaid = false, achieve = 656, attune = 3789, icon = "Achievement_Boss_Murmur", aliases = {"темный лабиринт", "лабиринт", "тл"} },
@@ -498,7 +498,9 @@ local function IsInstanceLocked(destName)
     local dNorm = TalorianTP_Norm(destName)
     if lockedInstances[dNorm] then return true end
     for lockName, _ in pairs(lockedInstances) do
-        if lockName:find(dNorm, 1, true) or dNorm:find(lockName, 1, true) then
+        local mismatch = (dNorm == "стратхольм" and lockName:find("очищен", 1, true))
+            or (lockName == "стратхольм" and dNorm:find("очищен", 1, true))
+        if not mismatch and (lockName:find(dNorm, 1, true) or dNorm:find(lockName, 1, true)) then
             return true
         end
     end
@@ -512,6 +514,7 @@ local lastSummonTime = 0
 local CreateNoticeFrame
 local ParseServerZoneItems
 local ProcessBgForgeScanQueue
+local GetZoneForgeStats
 local noticeShownCount = 0
 local MAX_NOTICES_PER_SELECTION = 2
 local targetConfirmedNotified = false
@@ -604,7 +607,7 @@ local function IsUnitPlayersTalorian(unit)
             if ok then
                 local nLines = (tip.NumLines and tip:NumLines()) or 0
                 local pNorm = TalorianTP_Norm and TalorianTP_Norm(playerName) or playerName:lower()
-                local _, pStem = Utf8LenAndGenitiveStem(pNorm)
+                local pChars, pStem = Utf8LenAndGenitiveStem(pNorm)
                 local hasOtherOwnerTag = false
                 local matchesPlayer = false
                 for i = 2, math.min(nLines, 5) do
@@ -612,14 +615,28 @@ local function IsUnitPlayersTalorian(unit)
                     local lText = fs and fs:GetText() or (tip.lines and tip.lines[i]) or ""
                     if lText and lText ~= "" then
                         local lNorm = TalorianTP_Norm and TalorianTP_Norm(lText) or lText:lower()
-                        if lText:find(playerName, 1, true)
-                            or (pNorm ~= "" and lNorm:find(pNorm, 1, true))
-                            or (pStem and lNorm:find(pStem, 1, true)) then
+                        local lLow = lText:lower()
+                        local lPad = " " .. lNorm .. " "
+                        local exactMatch = (pNorm ~= "" and lPad:find(" " .. pNorm .. " ", 1, true) ~= nil)
+                            or lText:find("^" .. playerName:gsub("([^%w])", "%%%1") .. "$")
+                        local stemMatch = false
+                        if not exactMatch and pStem and pChars >= 4 then
+                            local escStem = pStem:gsub("([^%w])", "%%%1")
+                            local tok = lPad:match(" (" .. escStem .. "%S*) ")
+                            if tok then
+                                local tail = tok:sub(#pStem + 1)
+                                if tok == pNorm or tail == "а" or tail == "я" or tail == "и" or tail == "ы" or tail == "у" or tail == "ю" or tail == "е" or tail == "s" then
+                                    stemMatch = true
+                                end
+                            end
+                        end
+                        if exactMatch or stemMatch then
                             matchesPlayer = true
                             break
                         end
                         if lNorm:find("спутник%s+%S") or lNorm:find("прислужник%s+%S") or lNorm:find("питомец%s+%S") or lNorm:find("страж%s+%S")
-                            or lNorm:find("'s%s+companion") or lNorm:find("'s%s+minion") or lNorm:find("'s%s+pet") then
+                            or lLow:find("'s%s+companion") or lLow:find("'s%s+minion") or lLow:find("'s%s+pet")
+                            or lNorm:find("%ss%s+companion") or lNorm:find("%ss%s+minion") or lNorm:find("%ss%s+pet") then
                             hasOtherOwnerTag = true
                         end
                     end
@@ -892,6 +909,11 @@ local function ResolveMacroIconIndex(icon)
 end
 
 local function GetDestMacroTag(destName)
+    local d = destName and FindDestByName and FindDestByName(destName) or nil
+    if d and d.short and d.short ~= "" then
+        local tag = "T_" .. tostring(d.short):gsub("%s+", "")
+        return Utf8SubBytes(tag, 16)
+    end
     local s = TalorianTP_Norm(destName):gsub("%s+", "")
     s = Utf8SubBytes(s, 12)
     return "T_" .. s
@@ -1006,8 +1028,9 @@ function TalorianTP_ToggleMacroForDest(destName)
     local tag = GetDestMacroTag(destName)
     local idx = GetCharMacroIndex(tag)
     if idx then
-        DeleteCharMacro(tag)
-        DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "Макрос |cffffffff" .. tag .. "|r удален из вкладки персонажа.")
+        if DeleteCharMacro(tag) then
+            DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "Макрос |cffffffff" .. tag .. "|r удален из вкладки персонажа.")
+        end
     else
         local body = BuildCharMacroBody("TalorianTP_SetAndGo(\"" .. destName .. "\")")
         local dest = FindDestByName(destName)
@@ -1058,17 +1081,33 @@ function TalorianTP_CreateMacro_Buffer()
 end
 
 function TalorianTP_DeleteAllTalorianMacros()
+    if InCombatLockdown and InCombatLockdown() then
+        DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "|cffff4444Невозможно удалять макросы в бою!|r")
+        return 0
+    end
     local numAccount, numChar = GetNumMacros()
+    local maxAcc = _G.MAX_ACCOUNT_MACROS or MAX_ACCOUNT_MACROS or 36
     local count = 0
-    for i = (MAX_ACCOUNT_MACROS + numChar), (MAX_ACCOUNT_MACROS + 1), -1 do
+    for i = (maxAcc + (numChar or 0)), (maxAcc + 1), -1 do
         local name = GetMacroInfo(i)
         if name and name:find("^T_") then
             DeleteMacro(i)
             count = count + 1
         end
     end
+    for i = (numAccount or 0), 1, -1 do
+        local name = GetMacroInfo(i)
+        if name and name:find("^T_") then
+            DeleteMacro(i)
+            count = count + 1
+        end
+    end
+    if MacroFrame and MacroFrame:IsVisible() and type(MacroFrame_Update) == "function" then
+        pcall(MacroFrame_Update)
+    end
     DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "Удалено " .. count .. " макросов TalorianTP.")
-    if mainUI and mainUI.RefreshButtons then mainUI.RefreshButtons() end
+    if mainUI and mainUI.RefreshButtons then mainUI:RefreshButtons() end
+    return count
 end
 
 ---------------------------------------------------------------------------
@@ -1424,21 +1463,24 @@ local function GetZoneOwnedReadyItems(zoneId)
         local topMap = (ap.Data and ap.Data.TopMap) or {}
         local cands = ap:GetOwnedUpgradeCandidates()
         for _, it in ipairs(cands) do
-            local seenZ = {}
-            if it.primaryZone and it.primaryZone > 0 then
-                seenZ[topMap[it.primaryZone] or it.primaryZone] = true
-            end
-            if ap.GetItemSources then
-                local sm = ap:GetItemSources(it.itemId)
-                for _, sc in ipairs((sm and sm.list) or {}) do
-                    if sc.zoneId and sc.zoneId > 0 then
-                        seenZ[topMap[sc.zoneId] or sc.zoneId] = true
+            local isMk = (ap.IsMorKelItem and ap:IsMorKelItem(it.itemId)) or (ap.MORKEL_ITEMS and ap.MORKEL_ITEMS[it.itemId])
+            if not isMk then
+                local seenZ = {}
+                if it.primaryZone and it.primaryZone > 0 then
+                    seenZ[topMap[it.primaryZone] or it.primaryZone] = true
+                end
+                if ap.GetItemSources then
+                    local sm = ap:GetItemSources(it.itemId)
+                    for _, sc in ipairs((sm and sm.list) or {}) do
+                        if sc.zoneId and sc.zoneId > 0 then
+                            seenZ[topMap[sc.zoneId] or sc.zoneId] = true
+                        end
                     end
                 end
-            end
-            for zid in pairs(seenZ) do
-                ownedState.cache[zid] = ownedState.cache[zid] or {}
-                table.insert(ownedState.cache[zid], it)
+                for zid in pairs(seenZ) do
+                    ownedState.cache[zid] = ownedState.cache[zid] or {}
+                    table.insert(ownedState.cache[zid], it)
+                end
             end
         end
     end
@@ -1907,7 +1949,7 @@ local function InitTalorianUI()
         end
     end)
     f:SetPoint("CENTER", 0, 0)
-    f:SetFrameStrata("MEDIUM")
+    f:SetFrameStrata("HIGH")
     f:SetToplevel(true)
     f:EnableMouse(true)
     f:SetMovable(true)
@@ -2446,8 +2488,9 @@ local function InitTalorianUI()
                             if za then
                                 local rem, st = 0, 0
                                 if za.isSingleDiff then
-                                    if dId <= 2 then
-                                        rem = (za.newCount or 0) + (za.forgeCount or 0)
+                                    local singleDiffSlot = (za.zoneId == 3457 or za.zoneId == 3805) and 1 or 2
+                                    if dId == singleDiffSlot then
+                                        rem = (za.newCount or 0) + (za.forgeCount or 0) + (za.randomSuffixNew or 0) + (za.randomSuffixForge or 0)
                                         st = za.totalRemainStats or 0
                                     end
                                 elseif dId <= (za.maxDiffs or 1) then
@@ -2471,9 +2514,15 @@ local function InitTalorianUI()
                         local selRem, selStats, selMissing = nil, 0, false
                         if selZa then
                             if selZa.isSingleDiff then
-                                selRem = (selZa.newCount or 0) + (selZa.forgeCount or 0)
-                                selStats = selZa.totalRemainStats or 0
-                                btn.txt:SetText(string.format("%s (%d)", btn.baseLabel, (dId <= 2) and selRem or 0))
+                                local singleDiffSlot = (selZa.zoneId == 3457 or selZa.zoneId == 3805) and 1 or 2
+                                if dId == singleDiffSlot then
+                                    selRem = (selZa.newCount or 0) + (selZa.forgeCount or 0) + (selZa.randomSuffixNew or 0) + (selZa.randomSuffixForge or 0)
+                                    selStats = selZa.totalRemainStats or 0
+                                    btn.txt:SetText(string.format("%s (%d)", btn.baseLabel, selRem))
+                                else
+                                    selMissing = true
+                                    btn.txt:SetText(btn.baseLabel .. " (-)")
+                                end
                             elseif dId <= (selZa.maxDiffs or 1) then
                                 local bd = selZa.byDiff and selZa.byDiff[dId]
                                 selRem = bd and ((bd.newCount or 0) + (bd.forgeCount or 0)) or 0
@@ -2750,6 +2799,7 @@ local function InitTalorianUI()
         btn:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
 
         btn:SetAttribute("type", "macro")
+        btn:SetAttribute("shift-type1", "")
         btn:SetAttribute("macrotext", BuildTalorianSecureMacro(true))
         btn:RegisterForClicks("LeftButtonUp")
 
@@ -2826,8 +2876,9 @@ local function InitTalorianUI()
             if btn.destData then
                 local mTag = GetDestMacroTag(btn.destData.name)
                 if GetCharMacroIndex(mTag) then
-                    DeleteCharMacro(mTag)
-                    DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "Макрос |cffffffff" .. mTag .. "|r удален.")
+                    if DeleteCharMacro(mTag) then
+                        DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "Макрос |cffffffff" .. mTag .. "|r удален.")
+                    end
                 else
                     TalorianTP_ToggleMacroForDest(btn.destData.name)
                 end
@@ -2855,7 +2906,9 @@ local function InitTalorianUI()
         btn.mBtn = mBtn
 
         btn:SetScript("PreClick", function(self)
-            UpdateSecureBtnMacro(self)
+            if not IsShiftKeyDown() then
+                UpdateSecureBtnMacro(self)
+            end
         end)
         btn:SetScript("PostClick", function(self, mouseBtn, down)
             if down then
@@ -3313,6 +3366,8 @@ local function InitTalorianUI()
 
     local statusNote = statusBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     statusNote:SetPoint("LEFT", 0, 0)
+    statusNote:SetJustifyH("LEFT")
+    if statusNote.SetWordWrap then statusNote:SetWordWrap(false) end
     f.statusNote = statusNote
 
     function f:UpdateStatusNote()
@@ -3352,6 +3407,7 @@ local function InitTalorianUI()
     local atlasBtn = CreateFrame("Button", nil, statusBar)
     atlasBtn:SetSize(112, 22)
     atlasBtn:SetPoint("RIGHT", analysisBtn, "LEFT", -6, 0)
+    statusNote:SetPoint("RIGHT", atlasBtn, "LEFT", -8, 0)
     PS.StyleBtn(atlasBtn, "dark")
     atlasBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     local atlTxt = atlasBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -3482,7 +3538,12 @@ local function CreateKeyCaptureFrame()
                 kf:Hide()
                 return
             end
+            local oldKey = TalorianTP_DB and TalorianTP_DB.interactKey
+            if oldKey and oldKey ~= chosenKey and type(GetBindingAction) == "function" and GetBindingAction(oldKey) == "INTERACTTARGET" then
+                pcall(SetBinding, oldKey)
+            end
             TalorianTP_DB.interactKey = chosenKey
+            TalorianTP_DB.interactKeyInited = true
             SetBinding(chosenKey, "INTERACTTARGET")
             SaveBindings(GetCurrentBindingSet())
             DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "Клавиша взаимодействия установлена: |cffffd200" .. chosenKey .. "|r")
@@ -3624,7 +3685,7 @@ local function CreateMinimapButton()
     btn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:ClearLines()
-        GameTooltip:AddLine("Talorian v4.2.1", 0.2, 0.7, 1)
+        GameTooltip:AddLine("Talorian v4.2.7", 0.2, 0.7, 1)
         GameTooltip:AddLine("ЛКМ: открыть/закрыть окно аддона", 1, 1, 1)
         GameTooltip:AddLine("ПКМ: быстрое включение/отключение", 0.8, 0.8, 0.8)
         GameTooltip:AddLine("Перетаскивание: перемещение по миникарте", 0.6, 0.6, 0.6)
@@ -3831,7 +3892,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2)
         end
 
         local k = TalorianTP_DB.interactKey or "ъ"
-        DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "v4.2.6 загружен. Открыть: |cffffd200/ttp|r. Бинд взаимодействия: [|cffffffff" .. k .. "|r]")
+        DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "v4.2.7 загружен. Открыть: |cffffd200/ttp|r. Бинд взаимодействия: [|cffffffff" .. k .. "|r]")
     elseif event == "PLAYER_LOGIN" then
         pcall(EnsureAttuneParserBridge)
         CreateMinimapButton()
@@ -3841,9 +3902,10 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2)
         EnsureSecureExecButton()
         RefreshTalorianOverrideBinding()
         local k = TalorianTP_DB and TalorianTP_DB.interactKey or "ъ"
-        if not InCombatLockdown() and type(GetCurrentBindingSet) == "function" and type(SetBinding) == "function" then
+        if TalorianTP_DB and not TalorianTP_DB.interactKeyInited and not InCombatLockdown() and type(GetCurrentBindingSet) == "function" and type(SetBinding) == "function" then
+            TalorianTP_DB.interactKeyInited = true
             local curAct = (type(GetBindingAction) == "function") and GetBindingAction(k) or nil
-            if curAct ~= "INTERACTTARGET" then
+            if not curAct or curAct == "" then
                 pcall(SetBinding, k, "INTERACTTARGET")
                 pcall(SaveBindings, GetCurrentBindingSet())
             end
@@ -4153,6 +4215,10 @@ SlashCmdList["TALORIANTP"] = function(msg)
                 par.level or 0, par.curXP or 0, par.maxXP or 0, sp.specName or "?", as.blacklistCount or 0))
         end
         return
+    elseif msg == "show" then
+        local ui = InitTalorianUI()
+        ui:Show()
+        RaiseFrameFront(ui)
     elseif msg == "reset" then
         TalorianTP_DB = nil
         ReloadUI()
@@ -5206,7 +5272,9 @@ do
                 end
             end
             for eid, info in pairs(itemForgeCache) do
-                if info and targetZid and info.zoneId == targetZid then seen[eid] = true end
+                if info and targetZid and _G.TalorianLootDB and _G.TalorianLootDB.InstanceItems and _G.TalorianLootDB.InstanceItems[eid] == targetZid then
+                    seen[eid] = true
+                end
             end
             for eid in pairs(seen) do
                 local info = itemForgeCache[eid]
@@ -5214,7 +5282,7 @@ do
                 local nm = gNm or ("Предмет #" .. eid)
                 local apiTier, apiAbs, apiPct = QueryCustomAttuneGlobalTier(eid, "item:" .. eid)
                 local effTier = math.max(info and info.tier or 1, apiTier or 1)
-                local isAbs = (info and info.absorbed) or (apiAbs and effTier >= 4) or (tonumber(apiPct) or 0) >= 90
+                local isAbs = (info and info.isAbs) or (apiAbs and effTier >= 4)
                 local stCat = isAbs and "done" or ((effTier > 1 or apiAbs) and "forge" or "new")
                 local keep = (stFilter == "all")
                     or (stFilter == "need" and stCat ~= "done")
@@ -5268,6 +5336,11 @@ do
             local dMask = 1
             if not isSingleDiff then
                 dMask = (srv and srv.modeMask and srv.modeMask > 0) and srv.modeMask or (rec.diffMask or 0)
+                if dMask == 0 and ap.InferRuntimeDiffMask and rec.ilvl and rec.ilvl > 0 then
+                    local zMeta = ap.Data.Zones and ap.Data.Zones[topId]
+                    local zExp = (zMeta and zMeta.exp) or (zoneDesc.exp == "WotLK" and 3 or (zoneDesc.exp == "TBC" and 2 or 1))
+                    dMask = ap.InferRuntimeDiffMask(topId, eid, rec.ilvl, zoneDesc.isRaid == true, zExp)
+                end
                 if maxDiffs == 2 and dMask >= 4 then
                     local c = 0
                     if bit and bit.band then
@@ -5407,8 +5480,9 @@ do
 
         local sf = f.itemScroll
         local rows = f.itemRows
-        local offset = FauxScrollFrame_GetOffset(sf) or sf._offset or 0
         FauxScrollFrame_Update(sf, #items, #rows, ITEM_ROW_H)
+        local offset = math.min(FauxScrollFrame_GetOffset(sf) or sf._offset or 0, math.max(0, #items - #rows))
+        sf._offset = offset
 
         for i = 1, #rows do
             local r = rows[i]
@@ -5455,8 +5529,9 @@ do
         local zones = expState.zones
         local rows = f.zoneRows
         local sf = f.zoneScroll
-        local offset = FauxScrollFrame_GetOffset(sf) or sf._offset or 0
         FauxScrollFrame_Update(sf, #zones, #rows, ZONE_ROW_H)
+        local offset = math.min(FauxScrollFrame_GetOffset(sf) or sf._offset or 0, math.max(0, #zones - #rows))
+        sf._offset = offset
 
         for i = 1, #rows do
             local r = rows[i]
@@ -5514,6 +5589,9 @@ do
         end
 
         local ap = rawget(_G, "AttuneParser")
+        if expState.kind == "dungeon" and (expState.diff or 0) > 2 then
+            expState.diff = 0
+        end
         local effDiff = (expState.diff > 0) and expState.diff or nil
         local qNorm = (expState.query ~= "") and TalorianTP_Norm(expState.query) or nil
         local allDests = GetAllExplorerZones()
@@ -5537,7 +5615,12 @@ do
                 local pct = (total > 0) and math.floor((done / total) * 100 + 0.5) or 0
                 local remStats = (za and za.totalRemainStats) or 0
 
-                if not qNorm or TalorianTP_Norm(d.name .. " " .. (d.short or "")):find(qNorm, 1, true) or total > 0 then
+                local includeZone = (not qNorm) or (TalorianTP_Norm(d.name .. " " .. (d.short or "")):find(qNorm, 1, true) ~= nil)
+                if not includeZone and qNorm then
+                    local matchedItems = CollectZoneItems(d)
+                    if matchedItems and #matchedItems > 0 then includeZone = true end
+                end
+                if includeZone then
                     if modeAvail and total > 0 then
                         totDone = totDone + done
                         totPool = totPool + total
@@ -5581,7 +5664,10 @@ do
         for _, b in ipairs(f.diffBtns) do
             PS.PaintBtn(b, (b.id == expState.diff) and "gold" or "dark")
             if b.id == 1 then b.txt:SetText((expState.kind == "dungeon") and "Обыч." or "10 об")
-            elseif b.id == 2 then b.txt:SetText((expState.kind == "dungeon") and "Героич." or "25 об") end
+            elseif b.id == 2 then b.txt:SetText((expState.kind == "dungeon") and "Героич." or "25 об")
+            elseif b.id >= 3 then
+                if expState.kind == "dungeon" then b:Hide() else b:Show() end
+            end
         end
         for _, b in ipairs(f.statusBtns) do PS.PaintBtn(b, (b.id == expState.status) and "gold" or "dark") end
 
@@ -5623,7 +5709,7 @@ do
         local f = CreateFrame("Frame", "TalorianAnalysisFrame", UIParent)
         f:SetSize(808, 554)
         f:SetPoint("CENTER", 0, 0)
-        f:SetFrameStrata("MEDIUM")
+        f:SetFrameStrata("HIGH")
         f:SetToplevel(true)
         f:SetClampedToScreen(true)
         f:EnableMouse(true)
@@ -5699,20 +5785,34 @@ do
         f.summaryTxt = summaryTxt
 
         -- Строки фильтров
+        local function ResetExplorerScrolls()
+            if f.zoneScroll then
+                f.zoneScroll._offset = 0
+                if type(FauxScrollFrame_SetOffset) == "function" then FauxScrollFrame_SetOffset(f.zoneScroll, 0) end
+            end
+            if f.itemScroll then
+                f.itemScroll._offset = 0
+                if type(FauxScrollFrame_SetOffset) == "function" then FauxScrollFrame_SetOffset(f.itemScroll, 0) end
+            end
+        end
+
         local kindBtns, nextX = CreateFilterRow(f, EXP_KIND_BTNS, -52, 16, function(id)
             expState.kind = id
+            ResetExplorerScrolls()
             RefreshExplorerAll(false)
         end)
         f.kindBtns = kindBtns
 
         local eraBtns, eraEndX = CreateFilterRow(f, EXP_ERA_BTNS, -52, nextX + 8, function(id)
             expState.era = id
+            ResetExplorerScrolls()
             RefreshExplorerAll(false)
         end)
         f.eraBtns = eraBtns
 
         local diffBtns = CreateFilterRow(f, EXP_DIFF_BTNS, -52, eraEndX + 8, function(id)
             expState.diff = id
+            ResetExplorerScrolls()
             RefreshExplorerAll(false)
         end)
         f.diffBtns = diffBtns
@@ -5750,6 +5850,7 @@ do
             expState.query = ""
             ph:Show()
             clearSearchBtn:Hide()
+            ResetExplorerScrolls()
             RefreshExplorerAll(false)
         end)
         searchEdit:SetScript("OnEscapePressed", function(self) if self.ClearFocus then self:ClearFocus() end end)
@@ -5757,10 +5858,7 @@ do
             local txt = self:GetText() or ""
             expState.query = txt
             if txt ~= "" then ph:Hide(); clearSearchBtn:Show() else ph:Show(); clearSearchBtn:Hide() end
-            if f.itemScroll then
-                f.itemScroll._offset = 0
-                if type(FauxScrollFrame_SetOffset) == "function" then FauxScrollFrame_SetOffset(f.itemScroll, 0) end
-            end
+            ResetExplorerScrolls()
             RefreshExplorerAll(false)
         end)
         f:HookScript("OnHide", function()
@@ -6051,6 +6149,10 @@ do
     local topRowsData = {}
 
     local function FindDestByZoneOrName(zoneId, zoneName)
+        if zoneName and zoneName ~= "" then
+            local byName = FindDestByName(zoneName)
+            if byName then return byName end
+        end
         local pools = { RAID_DESTS, DUNGEONS_WOTLK, DUNGEONS_TBC, DUNGEONS_VANILLA }
         if zoneId and zoneId > 0 then
             for _, pool in ipairs(pools) do
@@ -6059,27 +6161,23 @@ do
                 end
             end
         end
-        if zoneName and zoneName ~= "" then
-            return FindDestByName(zoneName)
-        end
         return nil
     end
 
     local function SelectDestInTalorianUI(dest)
         if not dest then return end
         TalorianTP_SetTarget(dest.name)
-        if mainUI then
-            if dest.isRaid then
-                TalorianTP_DB.activeTab = 1
-                if TalorianTP_DB.raidEra and TalorianTP_DB.raidEra ~= "All" and dest.exp then
-                    TalorianTP_DB.raidEra = dest.exp
-                end
-                if mainUI.SwitchTab then mainUI:SwitchTab(1) end
-            else
-                TalorianTP_DB.activeTab = 2
-                if dest.exp then TalorianTP_DB.dungeonEra = dest.exp end
-                if mainUI.SwitchTab then mainUI:SwitchTab(2) end
+        TalorianTP_DB = TalorianTP_DB or {}
+        if dest.isRaid then
+            TalorianTP_DB.activeTab = 1
+            if TalorianTP_DB.raidEra and TalorianTP_DB.raidEra ~= "All" and dest.exp then
+                TalorianTP_DB.raidEra = dest.exp
             end
+            if mainUI and mainUI.SwitchTab then mainUI:SwitchTab(1) end
+        else
+            TalorianTP_DB.activeTab = 2
+            if dest.exp then TalorianTP_DB.dungeonEra = dest.exp end
+            if mainUI and mainUI.SwitchTab then mainUI:SwitchTab(2) end
         end
     end
 
@@ -6239,8 +6337,8 @@ do
 
         local rows = topFrame.rows
         local numRows = #rows
-        local offset = FauxScrollFrame_GetOffset(topFrame.scrollFrame) or 0
         FauxScrollFrame_Update(topFrame.scrollFrame, #topRowsData, numRows, 24)
+        local offset = math.min(FauxScrollFrame_GetOffset(topFrame.scrollFrame) or 0, math.max(0, #topRowsData - numRows))
 
         for i = 1, numRows do
             local r = rows[i]
@@ -6273,7 +6371,7 @@ do
         local f = CreateFrame("Frame", "TalorianTopFrame", UIParent)
         f:SetSize(680, 528)
         f:SetPoint("CENTER", 0, 0)
-        f:SetFrameStrata("MEDIUM")
+        f:SetFrameStrata("HIGH")
         f:SetToplevel(true)
         f:SetClampedToScreen(true)
         f:EnableMouse(true)
@@ -6601,7 +6699,9 @@ do
                     if ap and ap.RequestItemSources then
                         ap:RequestItemSources(rd.itemId)
                     end
-                    GameTooltip:SetHyperlink("item:" .. rd.itemId)
+                    if not (InCombatLockdown and InCombatLockdown()) then
+                        pcall(GameTooltip.SetHyperlink, GameTooltip, "item:" .. rd.itemId)
+                    end
                     GameTooltip:AddLine(" ")
                     GameTooltip:AddLine(rd.statusText .. "  " .. rd.statsText, 1, 1, 1)
                     local srcMeta = (ap and ap.GetItemSources) and ap:GetItemSources(rd.itemId) or nil
@@ -6845,7 +6945,7 @@ do
         if aucFrame then return aucFrame end
         local f = CreateFrame("Frame", "TalorianAuctionFrame", UIParent)
         f:SetSize(296, 356)
-        f:SetFrameStrata("MEDIUM")
+        f:SetFrameStrata("HIGH")
         f:SetToplevel(true)
         f:SetClampedToScreen(true)
         f:EnableMouse(true)
@@ -7697,6 +7797,11 @@ function SC:RequestAllStates()
 end
 
 function SC:ToggleTalBuffBit(bitIdx, isPal)
+    if not SC.tal.loaded then
+        SendSrv("ACMSG_TALORIAN", "get")
+        SetStatus("Синхронизация баффов Талориана, повторите клик...")
+        return nil
+    end
     local cur = SC.tal.mask or 0
     local wasOn = HasBit(cur, bitIdx)
     if isPal then
@@ -7770,7 +7875,7 @@ function SC:GoldVaultTransfer(mode, copperArg)
         local myMoney = (type(GetMoney) == "function" and GetMoney()) or 0
         copper = math_max(0, myMoney - keep)
         if copper < 10000 then
-            SetStatus("Нет лишнего золота сверх " .. (db.gvKeepGold or 5000) .. "g.")
+            SetStatus("Нет лишнего золота сверх " .. (db.gvKeepGold or 5000) .. " зол.")
             return false
         end
         if copper >= MAX_MONEY then copper = MAX_MONEY - 1 end
@@ -8281,14 +8386,14 @@ function SC:UpdateHUDTick()
         or "v НАЗАД"
 
     hudFrame.title:SetText(col .. Utf8CropChars(label, 24) .. "|r")
-    hudFrame.dir:SetText(string.format("%s  |cffffffff%.1f м|r (%d deg)", arrow, dist, deg))
+    hudFrame.dir:SetText(string.format("%s  |cffffffff%.1f м|r (%d град.)", arrow, dist, deg))
 
     local okW, sx, sy, _, front = pcall(mac, "QNW", tx, ty, tz or pz)
     if okW and front == 1 and sx and sy and UIParent then
         local sw, sh = UIParent:GetWidth() or 1024, UIParent:GetHeight() or 768
         hudFrame.pin:ClearAllPoints()
         hudFrame.pin:SetPoint("CENTER", UIParent, "BOTTOMLEFT", sx * sw, sy * sh)
-        hudFrame.pin.lbl:SetText(string.format("%s%.0fm|r", col, dist))
+        hudFrame.pin.lbl:SetText(string.format("%s%.0f м|r", col, dist))
         hudFrame.pin:Show()
     else
         hudFrame.pin:Hide()
@@ -8454,8 +8559,9 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
                 local delta = xp - (SC.neck.prevAbs or xp)
                 if delta > 0 then
                     SC.neck.gainedXP = SC.neck.gainedXP + delta
-                elseif delta < 0 and lvl > SC.neck.level then
-                    SC.neck.gainedXP = SC.neck.gainedXP + xp
+                elseif delta < 0 and lvl > (SC.neck.level or 0) then
+                    local prevRem = math_max(0, (SC.neck.nextXP or 0) - (SC.neck.prevAbs or 0))
+                    SC.neck.gainedXP = SC.neck.gainedXP + prevRem + xp
                 end
                 SC.neck.prevAbs = xp
             end
@@ -8729,6 +8835,10 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
         local sd = rawget(_G, "serverData")
         if type(sd) == "table" and ((tonumber(sd.level) or 0) > 0 or (tonumber(sd.expMax) or 0) > 0) then
             local sl, sx, sn = tonumber(sd.level) or 0, tonumber(sd.experience) or 0, tonumber(sd.expMax) or 0
+            if (nk.sessionStart or 0) == 0 then
+                nk.sessionStart = GetTime and GetTime() or 1
+                nk.prevAbs = sx
+            end
             if sl > (nk.level or 0) or (sl == (nk.level or 0) and sx > (nk.xp or 0)) then
                 nk.level = sl
                 nk.xp = sx
