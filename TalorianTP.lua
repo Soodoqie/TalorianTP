@@ -1,5 +1,5 @@
 --[[
-    TalorianTP v4.2.1 (WoW Prime)
+    TalorianTP v4.2.2 (WoW Prime)
     Автоматический телепорт и помощник спутника Талориана.
     Полная поддержка кириллицы UTF-8, навигации по госсип-меню WoW Prime,
     проверенных иконок клиента, базы предметов TalorianLootDB и интеграции с AttuneAtlas.
@@ -2493,14 +2493,14 @@ local function InitTalorianUI()
         end
     end
 
-    -- Вкладки категорий (Рейды, Подземелья, Столицы, Настройки, Сервер и Билды)
+    -- Вкладки категорий (Рейды, Подземелья, Столицы, Настройки, Спутники и Билды)
     local capCount = #GetCurrentCapitalList()
     local tabDefs = {
         { id = 1, label = "Рейды (" .. #RAID_DESTS .. ")" },
         { id = 2, label = "Подземелья (52)" },
         { id = 3, label = "Столицы и VIP (" .. capCount .. ")" },
         { id = 4, label = "Настройки" },
-        { id = 5, label = "Сервер и Билды" },
+        { id = 5, label = "Спутники и Билды" },
     }
     f.tabs = {}
     local tabW = (860 - 32 - 16) / 5
@@ -3106,7 +3106,7 @@ local function InitTalorianUI()
     function f:UpdateStatusNote()
         local _, foundPet = IsTalorianSummoned()
         if not foundPet then
-            self.statusNote:SetText("|cffff7070Спутник Талориан не найден - ТП отключен (автономно через AttuneParser)|r")
+            self.statusNote:SetText("|cffff7070Спутник Талориан не найден - телепорт отключен (режим аналитики)|r")
             return
         end
         local k = TalorianTP_DB and TalorianTP_DB.interactKey or "ъ"
@@ -3786,7 +3786,7 @@ SlashCmdList["TALORIANTP"] = function(msg)
         if not TalorianTP_DB.minimapPos then TalorianTP_DB.minimapPos = 192 end
         CreateMinimapButton()
         RegisterTalorianPrimeHub(true)
-        DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "Кнопка у миникарты показана (и закреплена в PrimeHub).")
+        DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "Кнопка у миникарты показана.")
         return
     elseif msg:find("^rec") or msg:find("^recommend") or msg:find("^совет") or msg:find("^топ") then
         local subCmd = msg:match("%s+(%S+)$") or "ALL"
@@ -3872,7 +3872,7 @@ SlashCmdList["TALORIANTP"] = function(msg)
                 if pac.ToggleAtlasUI then pac:ToggleAtlasUI("ALL") end
             end
         else
-            DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "|cffff0000PrimeAttuneCore не подключен.|r")
+            DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "|cffff0000Дополнительный модуль анализа не подключен.|r")
         end
         return
     elseif msg == "auc" or msg == "auction" then
@@ -5391,7 +5391,7 @@ do
             if rawget(_G, "AttuneAtlas_Toggle") then
                 AttuneAtlas_Toggle()
             else
-                DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "Серверный Атлас Поглощения (AttuneAtlas_Toggle) недоступен.")
+                DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "Встроенный Атлас поглощения недоступен.")
             end
         end)
 
@@ -5513,10 +5513,10 @@ do
                 GameTooltip:AddLine(" ")
                 GameTooltip:AddDoubleLine("Запасы ковки:", string.format("Мерц: %d  Пыл: %d  Астр: %d  Сундуки: %d", stk.dustEpic or 0, stk.dustLeg or 0, stk.dustTit or 0, stk.titanBoxes or 0), 0.85, 0.85, 0.85, 1, 1, 1)
                 if (stk.epicToLeg or 0) > 0 or (stk.craftableTit or 0) > 0 then
-                    GameTooltip:AddDoubleLine("Крафт Багума 3:1:", string.format("->Пыл:+%d, ->Астр:+%d (Всего Титан: %d)", stk.epicToLeg or 0, stk.craftableTit or 0, stk.totalTitPotential or 0), 0.8, 0.85, 0.95, 0.3, 1, 0.85)
+                    GameTooltip:AddDoubleLine("Обмен пыли 3:1:", string.format("->Пыл:+%d, ->Астр:+%d (Всего Титан: %d)", stk.epicToLeg or 0, stk.craftableTit or 0, stk.totalTitPotential or 0), 0.8, 0.85, 0.95, 0.3, 1, 0.85)
                 end
                 if (stk.frostEmblem or 0) > 0 or (stk.frostFromLowerEmblems or 0) > 0 then
-                    GameTooltip:AddDoubleLine("Эмблемы Льда:", string.format("%d (+%d из низш. у Багума = %d)", stk.frostEmblem or 0, stk.frostFromLowerEmblems or 0, stk.totalFrostPotential or 0), 0.8, 0.85, 0.95, 0.65, 0.85, 1)
+                    GameTooltip:AddDoubleLine("Эмблемы Льда:", string.format("%d (+%d из низших эмблем = %d)", stk.frostEmblem or 0, stk.frostFromLowerEmblems or 0, stk.totalFrostPotential or 0), 0.8, 0.85, 0.95, 0.65, 0.85, 1)
                 end
             end
             if eq then
@@ -6580,38 +6580,38 @@ local TAL_BUFFS = {
     { bit = 0,  label = "Стойкость",      pal = false },
     { bit = 8,  label = "Интеллект",      pal = false },
     { bit = 4,  label = "Дух",            pal = false },
-    { bit = 10, label = "Защ. от Тьмы",   pal = false },
+    { bit = 10, label = "Защита от Тьмы", pal = false },
     { bit = 2,  label = "Антистрах",      pal = false },
-    { bit = 7,  label = "Лапа дик.",      pal = false },
+    { bit = 7,  label = "Знак дикой",     pal = false },
     { bit = 6,  label = "Шипы",           pal = false },
     { bit = 1,  label = "Короли",         pal = true },
-    { bit = 3,  label = "Могущ.",         pal = true },
+    { bit = 3,  label = "Могущество",     pal = true },
     { bit = 9,  label = "Мудрость",       pal = true },
-    { bit = 5,  label = "Неприк.",        pal = true },
+    { bit = 5,  label = "Неприкоснов.",   pal = true },
 }
 local TAL_PAL_BITS = { 1, 3, 9, 5 }
 
-local RET_SLOTS = { [0] = "Слева", "Справа", "Позади Л", "Позади П", "За спиной" }
+local RET_SLOTS = { [0] = "Слева", "Справа", "Сзади слева", "Сзади справа", "За спиной" }
 local RET_KINDS = {
     { kind = 0, label = "Питомец" },
     { kind = 1, label = "Череп" },
     { kind = 2, label = "Талориан" },
-    { kind = 3, label = "Кладбоша" },
+    { kind = 3, label = "Сборщик" },
 }
 
 local PEPE_PERK_NAMES = {
     [2] = "+10% Маунт",
-    [5] = "+50% HP рег.",
-    [6] = "-15% Агро",
-    [8] = "Дв. прыжок",
-    [9] = "-25% Поломка",
+    [5] = "+50% Восст. HP",
+    [6] = "-15% Угроза",
+    [8] = "Двойной прыжок",
+    [9] = "-25% Износ",
     [11] = "-50% Ремонт",
-    [12] = "Хожд. по воде",
-    [14] = "+25% Скор. духа",
-    [16] = "-5% Цены торг.",
+    [12] = "Хождение по воде",
+    [14] = "+25% Скорость духа",
+    [16] = "-5% Цены торговцев",
     [18] = "+10% Полет",
-    [19] = "2x Сбор/сунд.",
-    [20] = "+10м Эликсиры",
+    [19] = "2x Сбор и сундуки",
+    [20] = "+10 мин Эликсиры",
 }
 local TRAVEL_PREF_ORDER = { 8, 18, 2, 19, 12, 14, 13, 4 }
 local MERCH_PREF_ORDER  = { 16, 11, 20, 9, 6, 5, 7, 15 }
@@ -6799,7 +6799,7 @@ function SC:GoldVaultTransfer(mode, copperArg)
     local now = GetTime()
     if (now - (SC.gv.lastOpAt or 0)) < 3.05 then
         local waitS = 3.05 - (now - SC.gv.lastOpAt)
-        SetStatus(string.format("GoldVault: подождите %.1fс (кулдаун).", waitS))
+        SetStatus(string.format("Сейф золота: подождите %.1fс (восстановление).", waitS))
         return false
     end
     local copper = math_floor(tonumber(copperArg) or 0)
@@ -6883,7 +6883,7 @@ function SC:SavePepePreset(slotKey)
         mask = SC.pepe.sel or 0,
         skin = (SC.pepe.cur and SC.pepe.cur > 0) and SC.pepe.cur or SC.pepe.prevSkin or 1,
     }
-    SetStatus(string.format("Пресет Пепе '%s' сохранен (%d баффов).", tostring(slotKey), CountBits(SC.pepe.sel)))
+    SetStatus(string.format("Набор талисмана '%s' сохранен (%d баффов).", tostring(slotKey), CountBits(SC.pepe.sel)))
     return db.pepePresets[slotKey]
 end
 
@@ -6893,7 +6893,7 @@ function SC:ApplyPepePreset(slotKey)
     local rawMask = p and p.mask or SC:GetDefaultPepePresetMask(slotKey)
     local safeMask, used, maxSlots = SC:SanitizePepeMask(rawMask)
     if (SC.pepe.mask or 0) == 0 then
-        SetStatus("Нет открытых нарядов Пепе.")
+        SetStatus("Нет открытых обликов талисмана.")
         return false
     end
     if SC.pepe.cur == 0 then
@@ -6907,7 +6907,7 @@ function SC:ApplyPepePreset(slotKey)
     end
     SC:SendPepeQueued("perks:" .. tostring(safeMask))
     SC.pepe.sel = safeMask
-    SetStatus(string.format("Пепе '%s': применено %d/%d перков.", tostring(slotKey), used, maxSlots))
+    SetStatus(string.format("Талисман '%s': применено %d/%d бонусов.", tostring(slotKey), used, maxSlots))
     return true
 end
 
@@ -7240,12 +7240,12 @@ end
 function SC:SetCustomPinHere()
     local fn = rawget(_G, "IsMacClient")
     if type(fn) ~= "function" then
-        SetStatus("IsMacClient(QNP) недоступен в клиенте.")
+        SetStatus("Функция позиционирования 3D-указателя недоступна в клиенте.")
         return false
     end
     local ok, px, py, pz = pcall(fn, "QNP")
     if not ok or not px then
-        SetStatus("Координаты QNP недоступны в этой локации.")
+        SetStatus("Координаты 3D-указателя недоступны в этой локации.")
         return false
     end
     SC.hud.pin = { x = px, y = py, z = pz, label = (type(GetSubZoneText) == "function" and GetSubZoneText()) or "Метка" }
@@ -7265,7 +7265,7 @@ function SC:UpdateHUDTick()
     if not hudFrame or not hudFrame:IsShown() then return end
     local mac = rawget(_G, "IsMacClient")
     if type(mac) ~= "function" then
-        hudFrame.dir:SetText("|cffff7070QNP/QNW недоступен|r")
+        hudFrame.dir:SetText("|cffff7070Указатель цели недоступен|r")
         hudFrame.pin:Hide()
         return
     end
@@ -7300,7 +7300,7 @@ function SC:UpdateHUDTick()
     end
 
     if not tx then
-        hudFrame.title:SetText("|cff38bdf8HUD 3D (QNP/QNW)|r")
+        hudFrame.title:SetText("|cff38bdf8Указатель цели|r")
         hudFrame.dir:SetText("|cff94a3b8Выберите цель/фокус или поставьте метку|r")
         hudFrame.pin:Hide()
         return
@@ -7433,8 +7433,8 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
                 SC.gv.balance = tonumber(val) or 0
                 SC.gv.lastErr = ""
             elseif kind == "ERR" then
-                SC.gv.lastErr = tostring(val or "err")
-                SetStatus("GoldVault ERR: " .. SC.gv.lastErr)
+                SC.gv.lastErr = tostring(val or "ошибка")
+                SetStatus("Сейф золота (ошибка): " .. SC.gv.lastErr)
             end
             NotifyUI()
         elseif a1 == "ASMSG_PEPE_STATE" or a1 == "ASMSG_PEPE_OPEN" then
@@ -7542,10 +7542,10 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
         return b
     end
 
-    -- ==== COLUMN 1: Talorian 11 buffs + Retinue + GoldVault ====
+    -- ==== COLUMN 1: Talorian buffs + Retinue + Gold Vault ====
     local h1 = c1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     h1:SetPoint("TOPLEFT", 10, -8)
-    h1:SetText("|cffffd200Талориан: Баффы (ACMSG_TALORIAN)|r")
+    h1:SetText("|cffffd200Баффы помощника|r")
 
     local buffBtns = {}
     for i, bf in ipairs(TAL_BUFFS) do
@@ -7564,14 +7564,14 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
         SC:CastTalBuffNow()
     end)
 
-    local favBtn = MakeBtn(c1, 8, -185, 252, 20, "В избранное сервера: ?", "dark", function()
+    local favBtn = MakeBtn(c1, 8, -185, 252, 20, "В избранное телепорта: ?", "dark", function()
         local cur = TalorianTP_DB and TalorianTP_DB.targetRaid
         if cur then SC:ToggleTalFav(cur) end
     end)
 
     local retHdr = c1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     retHdr:SetPoint("TOPLEFT", 10, -214)
-    retHdr:SetText("|cffffd200Свита (ACMSG_PRIMERET)|r")
+    retHdr:SetText("|cffffd200Дополнительные спутники|r")
 
     local retBtns = {}
     for i, rk in ipairs(RET_KINDS) do
@@ -7589,23 +7589,23 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
 
     local gvHdr = c1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     gvHdr:SetPoint("TOPLEFT", 10, -304)
-    gvHdr:SetText("|cffffd200Хранилище золота (GoldVault)|r")
+    gvHdr:SetText("|cffffd200Личный сейф золота|r")
 
     local gvBalTxt = c1:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     gvBalTxt:SetPoint("TOPLEFT", 10, -322)
     gvBalTxt:SetSize(250, 16)
     gvBalTxt:SetJustifyH("LEFT")
 
-    MakeBtn(c1, 8, -340, 82, 20, "+1k в ГВ", "dark", function() SC:GoldVaultTransfer("dep", 1000 * 10000) end)
-    MakeBtn(c1, 93, -340, 96, 20, "+Сверх 5k", "green", function() SC:GoldVaultTransfer("dep_excess", 0) end)
-    MakeBtn(c1, 192, -340, 68, 20, "-1k", "dark", function() SC:GoldVaultTransfer("wd", 1000 * 10000) end)
+    MakeBtn(c1, 8, -340, 82, 20, "+1000г", "dark", function() SC:GoldVaultTransfer("dep", 1000 * 10000) end)
+    MakeBtn(c1, 93, -340, 96, 20, "+Сверх 5000г", "green", function() SC:GoldVaultTransfer("dep_excess", 0) end)
+    MakeBtn(c1, 192, -340, 68, 20, "-1000г", "dark", function() SC:GoldVaultTransfer("wd", 1000 * 10000) end)
 
-    MakeBtn(c1, 8, -362, 252, 18, "Обновить данные Талориана/ГВ/Свиты", "dark", function() SC:RequestAllStates() end)
+    MakeBtn(c1, 8, -362, 252, 18, "Обновить баланс и спутников", "dark", function() SC:RequestAllStates() end)
 
-    -- ==== COLUMN 2: Pepe Presets + Dungeon/Loot + Metrics ====
+    -- ==== COLUMN 2: Talisman Presets + Dungeon/Loot + Metrics ====
     local h2 = c2:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     h2:SetPoint("TOPLEFT", 10, -8)
-    h2:SetText("|cffffd200Пепе (Hardmode ACMSG_PEPE)|r")
+    h2:SetText("|cffffd200Талисман на голову и бонусы|r")
 
     local pepeInfo = c2:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     pepeInfo:SetPoint("TOPLEFT", 10, -26)
@@ -7613,27 +7613,27 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
     pepeInfo:SetJustifyH("LEFT")
     pepeInfo:SetJustifyV("TOP")
 
-    local pepeToggleBtn = MakeBtn(c2, 8, -60, 124, 20, "Пепе: ?", "dark", function() SC:TogglePepeSummon() end)
-    local pepeMerchBtn = MakeBtn(c2, 136, -60, 124, 20, "Авто-торг: ?", "dark", function()
+    local pepeToggleBtn = MakeBtn(c2, 8, -60, 124, 20, "Талисман: ?", "dark", function() SC:TogglePepeSummon() end)
+    local pepeMerchBtn = MakeBtn(c2, 136, -60, 124, 20, "Авто-торговля: ?", "dark", function()
         local db = EnsureSCDB()
         db.autoPepeMerchant = not db.autoPepeMerchant
         NotifyUI()
     end)
 
-    MakeBtn(c2, 8, -84, 164, 20, "Пресет: Путь / Фарм", "green", function() SC:ApplyPepePreset("travel") end)
+    MakeBtn(c2, 8, -84, 164, 20, "Набор: Путь и Фарм", "green", function() SC:ApplyPepePreset("travel") end)
     MakeBtn(c2, 176, -84, 84, 20, "Сохранить", "dark", function() SC:SavePepePreset("travel") end)
 
-    MakeBtn(c2, 8, -108, 164, 20, "Пресет: Торг / Ремонт", "green", function() SC:ApplyPepePreset("merchant") end)
+    MakeBtn(c2, 8, -108, 164, 20, "Набор: Торг и Ремонт", "green", function() SC:ApplyPepePreset("merchant") end)
     MakeBtn(c2, 176, -108, 84, 20, "Сохранить", "dark", function() SC:SavePepePreset("merchant") end)
 
-    MakeBtn(c2, 8, -132, 164, 20, "Пресет: Свой #3", "dark", function() SC:ApplyPepePreset("custom") end)
+    MakeBtn(c2, 8, -132, 164, 20, "Набор: Свой #3", "dark", function() SC:ApplyPepePreset("custom") end)
     MakeBtn(c2, 176, -132, 84, 20, "Сохранить", "dark", function() SC:SavePepePreset("custom") end)
 
     local dngHdr = c2:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     dngHdr:SetPoint("TOPLEFT", 10, -162)
-    dngHdr:SetText("|cffffd200Уровень данжей, Мифик и AoE Лут|r")
+    dngHdr:SetText("|cffffd200Сложность данжей и автолут|r")
 
-    local tierNames = { "Необыч.", "Эпич.", "Легенд.", "Титан." }
+    local tierNames = { "Обычный", "Эпический", "Легенд.", "Титан." }
     local tierBtns = {}
     for lv = 1, 4 do
         local col = (lv - 1) % 2
@@ -7643,12 +7643,12 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
         end)
         tierBtns[lv] = b
     end
-    local mythicBtn = MakeBtn(c2, 8, -226, 124, 20, "Мифик (5): ?", "dark", function() SC:ToggleMythic() end)
-    local aoeBtn = MakeBtn(c2, 136, -226, 124, 20, "AoE Лут: ?", "dark", function() SC:ToggleAoELoot() end)
+    local mythicBtn = MakeBtn(c2, 8, -226, 124, 20, "Эпохальный: ?", "dark", function() SC:ToggleMythic() end)
+    local aoeBtn = MakeBtn(c2, 136, -226, 124, 20, "Автосбор: ?", "dark", function() SC:ToggleAoELoot() end)
 
     local mtrHdr = c2:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     mtrHdr:SetPoint("TOPLEFT", 10, -258)
-    mtrHdr:SetText("|cffffd200Точные метрики (ASMSG_PRIMEMTR / NECK)|r")
+    mtrHdr:SetText("|cffffd200Счетчик урона и прогресс уровня|r")
 
     local mtrTxt = c2:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     mtrTxt:SetPoint("TOPLEFT", 10, -278)
@@ -7656,10 +7656,10 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
     mtrTxt:SetJustifyH("LEFT")
     mtrTxt:SetJustifyV("TOP")
 
-    -- ==== COLUMN 3: Build Presets (Spec+Peark+SetForge) + 3D HUD ====
+    -- ==== COLUMN 3: Build Presets + 3D HUD ====
     local h3 = c3:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     h3:SetPoint("TOPLEFT", 10, -8)
-    h3:SetText("|cffffd200Билд-пресеты (Спек + Peark + SetForge)|r")
+    h3:SetText("|cffffd200Пресеты талантов и билдов|r")
 
     local buildRows = {}
     for idx = 1, 3 do
@@ -7678,21 +7678,21 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
 
     local hudHdr = c3:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     hudHdr:SetPoint("TOPLEFT", 10, -214)
-    hudHdr:SetText("|cffffd2003D-HUD и Контуры (QNP / QNW / QNC)|r")
+    hudHdr:SetText("|cffffd200Указатель цели и подсветка|r")
 
-    local hudToggleBtn = MakeBtn(c3, 8, -234, 252, 22, "3D-HUD (стрелка/дист.): ?", "dark", function()
+    local hudToggleBtn = MakeBtn(c3, 8, -234, 252, 22, "Стрелка к цели: ?", "dark", function()
         local db = EnsureSCDB()
         db.hudEnabled = not db.hudEnabled
         SC:UpdateHUDVisibility()
         NotifyUI()
     end)
-    local qncToggleBtn = MakeBtn(c3, 8, -260, 252, 22, "QNC обводка цели/фокуса: ?", "dark", function()
+    local qncToggleBtn = MakeBtn(c3, 8, -260, 252, 22, "Подсветка цели и фокуса: ?", "dark", function()
         local db = EnsureSCDB()
         db.qncEnabled = not db.qncEnabled
         SC:RefreshQNCHighlight()
         NotifyUI()
     end)
-    MakeBtn(c3, 8, -286, 124, 20, "Метка QNP тут", "dark", function() SC:SetCustomPinHere() end)
+    MakeBtn(c3, 8, -286, 124, 20, "Поставить метку", "dark", function() SC:SetCustomPinHere() end)
     MakeBtn(c3, 136, -286, 124, 20, "Снять метку", "dark", function() SC:ClearCustomPin() end)
 
     local scStatusTxt = c3:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -7725,19 +7725,19 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
         retAutoBtn.txt:SetText("Автопризыв: " .. (SC.ret.resummon and "ВКЛ" or "ВЫКЛ"))
 
         local balStr = (SC.gv.balance ~= nil) and FormatGold(SC.gv.balance) or "|cff94a3b8? (подойдите к банку)|r"
-        gvBalTxt:SetText("В Хранилище: |cffffd200" .. balStr .. "|r")
+        gvBalTxt:SetText("В сейфе: |cffffd200" .. balStr .. "|r")
 
         local pActCnt = CountBits(SC.pepe.sel)
         local pNames = {}
         for i = 1, 21 do
             if HasBit(SC.pepe.sel, i - 1) then pNames[#pNames + 1] = PEPE_PERK_NAMES[i] or ("#" .. i) end
         end
-        pepeInfo:SetText(string.format("Наряд: %s | Бонусов: |cff40ff40%d/%d|r\n%s",
+        pepeInfo:SetText(string.format("Вид: %s | Бонусов: |cff40ff40%d/%d|r\n%s",
             (SC.pepe.cur > 0) and ("#" .. SC.pepe.cur) or "|cff94a3b8снят|r",
             pActCnt, SC.pepe.slots or 0,
             (#pNames > 0) and Utf8CropChars(table.concat(pNames, ", "), 44) or "|cff94a3b8Нет активных бонусов|r"))
         PS.PaintBtn(pepeToggleBtn, (SC.pepe.cur > 0) and "green" or "dark")
-        pepeToggleBtn.txt:SetText("Пепе: " .. ((SC.pepe.cur > 0) and "НА ГОЛОВЕ" or "СНЯТ"))
+        pepeToggleBtn.txt:SetText("Талисман: " .. ((SC.pepe.cur > 0) and "ВКЛ" or "ВЫКЛ"))
         PS.PaintBtn(pepeMerchBtn, db.autoPepeMerchant and "green" or "dark")
         pepeMerchBtn.txt:SetText("Авто-торг: " .. (db.autoPepeMerchant and "ВКЛ" or "ВЫКЛ"))
 
@@ -7745,10 +7745,10 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
             PS.PaintBtn(tierBtns[lv], (SC.dung.tier == lv) and "gold" or "dark")
         end
         PS.PaintBtn(mythicBtn, SC.dung.mythic and "green" or "dark")
-        mythicBtn.txt:SetText("Мифик (5): " .. (SC.dung.mythic and "ВКЛ" or "ВЫКЛ"))
+        mythicBtn.txt:SetText("Эпохальный: " .. (SC.dung.mythic and "ВКЛ" or "ВЫКЛ"))
         local aoeOn = (SC.dung.aoeLoot ~= nil) and SC.dung.aoeLoot or (type(GetCVar) == "function" and GetCVar("aoeLootEnabled") == "1")
         PS.PaintBtn(aoeBtn, aoeOn and "green" or "dark")
-        aoeBtn.txt:SetText("AoE Лут: " .. (aoeOn and "ВКЛ" or "ВЫКЛ"))
+        aoeBtn.txt:SetText("Автосбор: " .. (aoeOn and "ВКЛ" or "ВЫКЛ"))
 
         local mtr = SC.mtr
         local nk = SC.neck
@@ -7762,7 +7762,7 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
             end
         end
         mtrTxt:SetText(string.format(
-            "64-bit Урон (PRIMEMTR): |cffffffff%s|r\nРеальный DPS: |cff40ff40%s/с|r | Пик: |cffff8040%s|r\nПарагон ур.: |cffffd200%d|r (%s / %s)\nТемп XP/ч: |cff38bdf8%s|r%s",
+            "Общий урон: |cffffffff%s|r\nDPS: |cff40ff40%s/с|r | Пик: |cffff8040%s|r\nДоп. уровень: |cffffd200%d|r (%s / %s)\nТемп XP/ч: |cff38bdf8%s|r%s",
             FormatShortNum(mtr.totalDmg), FormatShortNum(mtr.dps), FormatShortNum(mtr.peakHit),
             nk.level, FormatShortNum(nk.xp), FormatShortNum(nk.nextXP),
             FormatShortNum(nk.ratePerHr), (nk.bonusPct > 0) and (" (+" .. nk.bonusPct .. "%)") or ""
@@ -7772,21 +7772,21 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
             local p = db.buildPresets[idx]
             local row = buildRows[idx]
             if p then
-                row.lbl:SetText(string.format("|cff40ff40%s|r\nСпек #%d | Peark: %d шт | T11: %d+%d",
+                row.lbl:SetText(string.format("|cff40ff40%s|r\nСпек #%d | Перки: %d шт | Ковка: %d+%d",
                     tostring(p.name or ("Билд #" .. idx)), p.specGroup or 1, #(p.pearkSetIds or {}), p.sfV2 or 0, p.sfV4 or 0))
                 PS.PaintBtn(row.app, "green")
             else
-                row.lbl:SetText("|cff94a3b8Слот #" .. idx .. " пуст (настройте спек+перки и сохраните)|r")
+                row.lbl:SetText("|cff94a3b8Слот #" .. idx .. " пуст (настройте спек и сохраните)|r")
                 PS.PaintBtn(row.app, "gray")
             end
         end
 
         PS.PaintBtn(hudToggleBtn, db.hudEnabled and "green" or "dark")
-        hudToggleBtn.txt:SetText("3D-HUD (QNP/QNW): " .. (db.hudEnabled and "ВКЛ" or "ВЫКЛ"))
+        hudToggleBtn.txt:SetText("Стрелка к цели: " .. (db.hudEnabled and "ВКЛ" or "ВЫКЛ"))
         PS.PaintBtn(qncToggleBtn, db.qncEnabled and "green" or "dark")
-        qncToggleBtn.txt:SetText("QNC обводка цели: " .. (db.qncEnabled and "ВКЛ" or "ВЫКЛ"))
+        qncToggleBtn.txt:SetText("Подсветка цели: " .. (db.qncEnabled and "ВКЛ" or "ВЫКЛ"))
 
-        scStatusTxt:SetText((SC.statusLine ~= "" and SC.statusLine or "|cff94a3b8Готово. Метка QNP: " .. (SC.hud.pin and "установлена" or "нет") .. "|r"))
+        scStatusTxt:SetText((SC.statusLine ~= "" and SC.statusLine or "|cff94a3b8Готово. Своя метка: " .. (SC.hud.pin and "установлена" or "нет") .. "|r"))
     end
 
     return panel
@@ -7820,7 +7820,7 @@ do
                 db.hudEnabled = not db.hudEnabled
                 SC:UpdateHUDVisibility()
                 if DEFAULT_CHAT_FRAME then
-                    DEFAULT_CHAT_FRAME:AddMessage("|cff38bdf8[Talorian]|r 3D-HUD (QNP/QNW): " .. (db.hudEnabled and "ВКЛ" or "ВЫКЛ"))
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff38bdf8[Talorian]|r Указатель цели: " .. (db.hudEnabled and "ВКЛ" or "ВЫКЛ"))
                 end
                 return
             end
