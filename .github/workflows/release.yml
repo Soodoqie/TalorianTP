@@ -14,6 +14,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Static sanity check
+        run: |
+          python - << 'PY'
+          import xml.etree.ElementTree as ET
+          ET.parse("Bindings.xml")
+          toc = open("TalorianTP.toc", "rb").read()
+          assert not toc.startswith(b"\xef\xbb\xbf"), "BOM in TalorianTP.toc"
+          toc_txt = toc.decode("utf-8")
+          assert "Bindings.xml" not in toc_txt, "Bindings.xml must not be listed in .toc"
+          for fn in ("TalorianTP.lua", "TalorianLootDB.lua"):
+              raw = open(fn, "rb").read()
+              assert not raw.startswith(b"\xef\xbb\xbf"), f"BOM in {fn}"
+              txt = raw.decode("utf-8")
+              assert "C_Timer" not in txt, f"C_Timer found in {fn}"
+              assert ":SetShown(" not in txt, f":SetShown( found in {fn}"
+          print("TalorianTP static sanity check passed")
+          PY
+
       - name: Package TalorianTP addon zip
         run: |
           TAG="${GITHUB_REF_NAME}"
