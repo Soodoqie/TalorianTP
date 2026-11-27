@@ -1,5 +1,5 @@
 --[[
-    TalorianTP v4.2.3 (WoW Prime)
+    TalorianTP v4.2.4 (WoW Prime)
     Автоматический телепорт и помощник спутника Талориана.
     Полная поддержка кириллицы UTF-8, навигации по госсип-меню WoW Prime,
     проверенных иконок клиента, базы предметов TalorianLootDB и интеграции с AttuneAtlas.
@@ -2197,6 +2197,24 @@ local function InitTalorianUI()
         qBtn.txt:SetPoint("CENTER", 0, 0)
         qBtn.txt:SetText("|cffffd200" .. qr.label .. "|r")
 
+        local qProgBg = CreateFrame("Frame", nil, qBtn)
+        qProgBg:SetPoint("TOPLEFT", qBtn, "BOTTOMLEFT", 2, -1)
+        qProgBg:SetPoint("TOPRIGHT", qBtn, "BOTTOMRIGHT", -2, -1)
+        qProgBg:SetHeight(3)
+        qProgBg:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+        qProgBg:SetBackdropColor(0.05, 0.05, 0.08, 0.90)
+        qProgBg:SetBackdropBorderColor(0.32, 0.27, 0.16, 0.75)
+        local qProgFill = qProgBg:CreateTexture(nil, "OVERLAY")
+        qProgFill:SetPoint("TOPLEFT", qProgBg, "TOPLEFT", 1, -1)
+        qProgFill:SetPoint("BOTTOMLEFT", qProgBg, "BOTTOMLEFT", 1, 1)
+        qProgFill:SetTexture("Interface\\Buttons\\WHITE8X8")
+        qProgFill:SetVertexColor(0.22, 0.88, 0.42, 0.95)
+        qProgFill:Hide()
+        qProgBg:Hide()
+        qBtn.progBg = qProgBg
+        qBtn.progFill = qProgFill
+        qBtn._progMaxW = 54
+
         qBtn:SetScript("PreClick", function(self)
             UpdateSecureBtnMacro(self)
         end)
@@ -2635,7 +2653,7 @@ local function InitTalorianUI()
     local COLS = 3
     local ROWS = 8
     local btnW = (860 - 32 - 16) / COLS
-    local btnH = 40
+    local btnH = 38
 
     f.destButtons = {}
     for i = 1, (COLS * ROWS) do
@@ -2644,7 +2662,7 @@ local function InitTalorianUI()
 
         local btn = CreateFrame("Button", "TalorianDestBtn_" .. i, contentFrame, "SecureActionButtonTemplate")
         btn:SetSize(btnW, btnH)
-        btn:SetPoint("TOPLEFT", col * (btnW + 8), -row * (btnH + 4))
+        btn:SetPoint("TOPLEFT", col * (btnW + 8), -row * (btnH + 7))
         btn:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
 
         btn:SetAttribute("type", "macro")
@@ -2680,6 +2698,35 @@ local function InitTalorianUI()
         badge:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -36, 4)
         badge:SetJustifyH("RIGHT")
         btn.badge = badge
+
+        -- Полоска прогресса освоения вещей непосредственно под кнопкой
+        local progBg = CreateFrame("Frame", nil, btn)
+        progBg:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 2, -1)
+        progBg:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", -2, -1)
+        progBg:SetHeight(5)
+        progBg:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+        progBg:SetBackdropColor(0.05, 0.05, 0.08, 0.90)
+        progBg:SetBackdropBorderColor(0.32, 0.27, 0.16, 0.80)
+
+        local progAbsFill = progBg:CreateTexture(nil, "ARTWORK")
+        progAbsFill:SetPoint("TOPLEFT", progBg, "TOPLEFT", 1, -1)
+        progAbsFill:SetPoint("BOTTOMLEFT", progBg, "BOTTOMLEFT", 1, 1)
+        progAbsFill:SetTexture("Interface\\Buttons\\WHITE8X8")
+        progAbsFill:SetVertexColor(0.85, 0.58, 0.14, 0.55)
+        progAbsFill:Hide()
+
+        local progFill = progBg:CreateTexture(nil, "OVERLAY")
+        progFill:SetPoint("TOPLEFT", progBg, "TOPLEFT", 1, -1)
+        progFill:SetPoint("BOTTOMLEFT", progBg, "BOTTOMLEFT", 1, 1)
+        progFill:SetTexture("Interface\\Buttons\\WHITE8X8")
+        progFill:SetVertexColor(0.22, 0.88, 0.42, 0.95)
+        progFill:Hide()
+
+        progBg:Hide()
+        btn.progBg = progBg
+        btn.progAbsFill = progAbsFill
+        btn.progFill = progFill
+        btn._progMaxW = math.max(20, math.floor(btnW - 6))
 
         -- Кнопка создания/удаления макроса прямо на карточке (+M)
         local mBtn = CreateFrame("Button", nil, btn)
@@ -2969,6 +3016,37 @@ local function InitTalorianUI()
         self:RefreshButtons()
     end
 
+    local function UpdateProgressBarWidget(w, donePct, absPct)
+        if not w or not w.progBg then return end
+        local maxW = w._progMaxW or 264
+        w.progBg:Show()
+        if w.progAbsFill then
+            if absPct and absPct > donePct and absPct > 0 then
+                w.progAbsFill:SetWidth(math.max(2, math.floor(maxW * math.min(100, absPct) / 100 + 0.5)))
+                w.progAbsFill:Show()
+            else
+                w.progAbsFill:Hide()
+            end
+        end
+        if w.progFill then
+            if donePct > 0 then
+                w.progFill:SetWidth(math.max(2, math.floor(maxW * math.min(100, donePct) / 100 + 0.5)))
+                if donePct >= 100 then
+                    w.progFill:SetVertexColor(0.22, 0.90, 0.42, 0.95)
+                elseif donePct >= 75 then
+                    w.progFill:SetVertexColor(0.62, 0.88, 0.25, 0.95)
+                elseif donePct >= 35 then
+                    w.progFill:SetVertexColor(1.00, 0.78, 0.18, 0.95)
+                else
+                    w.progFill:SetVertexColor(0.24, 0.68, 0.98, 0.95)
+                end
+                w.progFill:Show()
+            else
+                w.progFill:Hide()
+            end
+        end
+    end
+
     -- Обновление сетки карточек
     function f:RefreshButtons()
         local activeTab = TalorianTP_DB and TalorianTP_DB.activeTab or 1
@@ -3032,15 +3110,27 @@ local function InitTalorianUI()
                         btn.badge:SetText("|cff666666-|r")
                         btn.badge:SetTextColor(0.5, 0.5, 0.5, 1)
                         if btn.statBadge then btn.statBadge:SetText("|cff666666Нет сложности|r") end
+                        if btn.progBg then btn.progBg:Hide() end
                     elseif za and za.totalPool and za.totalPool > 0 then
                         local remStats = za.totalRemainStats or 0
                         local nNew = za.newCount or 0
                         local nForge = za.forgeCount or 0
                         local nRand = (za.randomSuffixNew or 0) + (za.randomSuffixForge or 0)
+                        local doneCnt = za.completedCount or 0
+                        local donePct = math.floor((doneCnt / za.totalPool) * 100 + 0.5)
+                        local absCnt = math.max(doneCnt, math.min(za.totalPool, doneCnt + nForge + (za.randomSuffixForge or 0)))
+                        local absPct = math.floor((absCnt / za.totalPool) * 100 + 0.5)
+                        local pCol = (donePct >= 100) and "|cff40ff40"
+                            or (donePct >= 75 and "|cffa3e635"
+                            or (donePct >= 35 and "|cffffd200" or "|cff60a5fa"))
+                        btn.subtitle:SetText(string.format("%s%d%%|r |cff94a3b8(%d/%d)|r - %s",
+                            pCol, donePct, doneCnt, za.totalPool, data.short or data.exp))
+
+                        UpdateProgressBarWidget(btn, donePct, absPct)
 
                         btn.badge:SetTextColor(1, 1, 1, 1)
                         if nNew == 0 and nForge == 0 and nRand == 0 then
-                            btn.badge:SetText(string.format("|cff40ff40%d / %d|r", za.completedCount or 0, za.totalPool))
+                            btn.badge:SetText(string.format("|cff40ff40%d / %d|r", doneCnt, za.totalPool))
                             if btn.statBadge then btn.statBadge:SetText("|cff40ff40Готово 100%|r") end
                         else
                             if nNew > 0 and nForge > 0 then
@@ -3066,10 +3156,12 @@ local function InitTalorianUI()
                     else
                         btn.badge:SetText("")
                         if btn.statBadge then btn.statBadge:SetText("") end
+                        if btn.progBg then btn.progBg:Hide() end
                     end
                 else
                     btn.badge:SetText("")
                     if btn.statBadge then btn.statBadge:SetText("") end
+                    if btn.progBg then btn.progBg:Hide() end
                 end
 
                 -- Индикатор макроса
@@ -3086,6 +3178,24 @@ local function InitTalorianUI()
             else
                 btn.destData = nil
                 btn:Hide()
+            end
+        end
+
+        if self.quickRaidBtns then
+            for _, qBtn in ipairs(self.quickRaidBtns) do
+                local dest = qBtn.destName and FindDestByName(qBtn.destName) or nil
+                local za = (ap and ap.GetZoneAnalysis and dest and dest.attune) and ap:GetZoneAnalysis(dest.attune, {
+                    diffId = raidDiff, isRaid = true, exp = dest.exp, scope = "hero",
+                }) or nil
+                if qBtn.progBg and za and za.totalPool and za.totalPool > 0 and za.modeAvailable ~= false then
+                    local qDone = za.completedCount or 0
+                    local pct = math.floor((qDone / za.totalPool) * 100 + 0.5)
+                    local qAbs = math.max(qDone, math.min(za.totalPool, qDone + (za.forgeCount or 0) + (za.randomSuffixForge or 0)))
+                    local absPct = math.floor((qAbs / za.totalPool) * 100 + 0.5)
+                    UpdateProgressBarWidget(qBtn, pct, absPct)
+                elseif qBtn.progBg then
+                    qBtn.progBg:Hide()
+                end
             end
         end
 
