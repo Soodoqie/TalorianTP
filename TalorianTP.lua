@@ -1,13 +1,15 @@
 --[[
-    TalorianTP v4.2.9 (WoW Prime)
+    TalorianTP v4.3.0 (WoW Prime)
     Автоматический телепорт и помощник спутника Талориана.
     Полная поддержка кириллицы UTF-8, навигации по госсип-меню WoW Prime,
-    проверенных иконок клиента, базы предметов TalorianLootDB и интеграции с AttuneAtlas.
+    модульной настройки блоков UI, базы предметов TalorianLootDB и интеграции с AttuneParser.
 ]]--
 
 TalorianTP = {}
 TalorianTP_DB = TalorianTP_DB or {}
 
+local TALORIAN_VERSION = "4.3.0"
+TalorianTP.VERSION = TALORIAN_VERSION
 local MAIN_W = 896
 local ADDON_PREFIX = "|cff38bdf8[Talorian]|r "
 local mainUI = nil
@@ -2199,6 +2201,646 @@ local function RegisterSpecialFrame(name)
     table.insert(_G.UISpecialFrames, name)
 end
 
+do
+    local UI_BLOCK_DEFS = {
+        {
+            key = "modeBar",
+            title = "Панель режимов (Телепорт / Баффер / Банк / Магазин / Аукцион)",
+            desc = "Верхние переключатели взаимодействия с Талорианом. Скройте, если используете аддон только для телепорта.",
+            default = true,
+        },
+        {
+            key = "diffBar",
+            title = "Панель сложности и быстрые рейды",
+            desc = "Кнопки 10/25 об/гер (и 5 об/гер), 4 быстрых слота (ЦЛК, ИК, РС, Накс) и +4M. Скройте для чистого списка локаций.",
+            default = true,
+        },
+        {
+            key = "cardProgress",
+            title = "Прогресс освоения и статы на карточках",
+            desc = "Проценты, число новых/ковочных вещей, прирост статов и полоска прогресса. Отключите для максимально легкого вида.",
+            default = true,
+        },
+        {
+            key = "headerUtils",
+            title = "Кнопки шапки (Сброс КД, Бинд, Вкл/Выкл)",
+            desc = "Кнопки «Сброс КД (.in un all)», быстрая переназначка клавиши бинда и переключатель работы аддона.",
+            default = true,
+        },
+        {
+            key = "bottomTools",
+            title = "Нижняя панель инструментов и статуса",
+            desc = "Строка бинда и кнопки внизу окна: «Атлас и Топ», «Вещи по инстам» и кнопка быстрого макроса цели.",
+            default = true,
+        },
+        {
+            key = "tabServer",
+            title = "Вкладка «Спутники и Наборы»",
+            desc = "Серверная панель: баффы помощника, спутники, сейф золота, Талисман на голову, пресеты билдов и указатель цели.",
+            default = true,
+        },
+        {
+            key = "srvCol1",
+            title = "  - Спутники: Баффы, Питомцы и Сейф золота",
+            desc = "Левая колонка вкладки «Спутники»: баффы Талориана, доп. спутники, автопризыв и быстрые переводы в сейф.",
+            default = true,
+        },
+        {
+            key = "srvCol2",
+            title = "  - Спутники: Талисман, Сложность и Счетчик",
+            desc = "Средняя колонка вкладки «Спутники»: наборы Талисмана на голову, сложность данжей (Титанич./Эпох.) и DPS/Paragon-метр.",
+            default = true,
+        },
+        {
+            key = "srvCol3",
+            title = "  - Спутники: Билды и Указатель цели",
+            desc = "Правая колонка вкладки «Спутники»: 3 слота сохранения талантов/ковки, 3D-стрелка к цели и подсветка цели/фокуса.",
+            default = true,
+        },
+        {
+            key = "minimapBtn",
+            title = "Кнопка у миникарты",
+            desc = "Значок Talorian вокруг миникарты (главное окно всегда доступно по команде /ttp).",
+            default = true,
+        },
+        {
+            key = "auctionTrade",
+            title = "Помощник ковки на аукционе",
+            desc = "Кнопка и окно фильтрации непоглощенных и недокованных вещей на аукционе.",
+            default = true,
+        },
+    }
+    TalorianTP.UI_BLOCK_DEFS = UI_BLOCK_DEFS
+
+    local BLOCK_PRESETS = {
+        full = {},
+        minimal = {
+            modeBar = false,
+            diffBar = true,
+            cardProgress = false,
+            headerUtils = false,
+            bottomTools = false,
+            tabServer = false,
+            srvCol1 = false,
+            srvCol2 = false,
+            srvCol3 = false,
+            minimapBtn = true,
+            auctionTrade = false,
+        },
+        teleport_progress = {
+            modeBar = true,
+            diffBar = true,
+            cardProgress = true,
+            headerUtils = true,
+            bottomTools = true,
+            tabServer = false,
+            srvCol1 = false,
+            srvCol2 = false,
+            srvCol3 = false,
+            minimapBtn = true,
+            auctionTrade = true,
+        },
+    }
+
+    local onboardingFrame = nil
+
+    function TalorianTP:EnsureUIDB()
+        TalorianTP_DB = TalorianTP_DB or {}
+        if type(TalorianTP_DB.uiBlocks) ~= "table" then
+            TalorianTP_DB.uiBlocks = {}
+        end
+        local blk = TalorianTP_DB.uiBlocks
+        for _, def in ipairs(UI_BLOCK_DEFS) do
+            if blk[def.key] == nil then
+                if def.key == "auctionTrade" and TalorianTP_DB.hideAuctionPanel == true then
+                    blk[def.key] = false
+                else
+                    blk[def.key] = (def.default ~= false)
+                end
+            end
+        end
+        if TalorianTP_DB.uiOnboardingDone == nil then
+            TalorianTP_DB.uiOnboardingDone = false
+        end
+        return blk
+    end
+
+    function TalorianTP:IsBlockEnabled(key)
+        local blk = self:EnsureUIDB()
+        return blk[key] ~= false
+    end
+
+    local function SyncExternalBlockState(key, val)
+        if key == "auctionTrade" then
+            TalorianTP_DB.hideAuctionPanel = not val
+            local ap = rawget(_G, "AttuneParser")
+            if ap and ap._hasStandaloneAuctionUI and ap.SetSetting then
+                ap:SetSetting("showAuctionUI", val)
+            elseif TalorianTP_RefreshAuctionHelper then
+                TalorianTP_RefreshAuctionHelper()
+            end
+        elseif key == "minimapBtn" then
+            local mm = rawget(_G, "TalorianMinimapButton")
+            if val then
+                if mm and mm.Show then mm:Show() end
+            elseif mm and mm.Hide then
+                mm:Hide()
+            end
+        end
+    end
+
+    function TalorianTP:ApplyUIBlocks()
+        if mainUI and mainUI.ApplyBlockLayout then
+            mainUI:ApplyBlockLayout()
+        end
+        local mm = rawget(_G, "TalorianMinimapButton")
+        if mm then
+            if self:IsBlockEnabled("minimapBtn") then mm:Show() else mm:Hide() end
+        end
+        if onboardingFrame and onboardingFrame:IsShown() and onboardingFrame.RefreshRows then
+            onboardingFrame:RefreshRows()
+        end
+    end
+
+    function TalorianTP:SetBlockEnabled(key, val, skipApply)
+        local blk = self:EnsureUIDB()
+        local b = val and true or false
+        blk[key] = b
+        SyncExternalBlockState(key, b)
+        if not skipApply then
+            self:ApplyUIBlocks()
+        end
+        return b
+    end
+
+    function TalorianTP:ApplyUIBlockPreset(presetId)
+        local blk = self:EnsureUIDB()
+        local map = BLOCK_PRESETS[presetId] or {}
+        for _, def in ipairs(UI_BLOCK_DEFS) do
+            local v = map[def.key]
+            if v == nil then v = true end
+            blk[def.key] = v and true or false
+            SyncExternalBlockState(def.key, blk[def.key])
+        end
+        self:ApplyUIBlocks()
+    end
+
+    local function MakeUiCheck(parent, x, y, w, h, label, getFn, setFn, tipTitle, tipDesc)
+        local row = CreateFrame("Button", nil, parent)
+        row:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+        row:SetSize(w, h or 20)
+        local chk = CreateFrame("Frame", nil, row)
+        chk:SetSize(16, 16)
+        chk:SetPoint("LEFT", row, "LEFT", 0, 0)
+        PS.StyleBox(chk, 0.72, false)
+        local mk = chk:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        mk:SetPoint("CENTER", 0, 0)
+        local txt = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        txt:SetPoint("LEFT", chk, "RIGHT", 6, 0)
+        txt:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        txt:SetJustifyH("LEFT")
+        if txt.SetWordWrap then txt:SetWordWrap(false) end
+        txt:SetText(label)
+
+        row:SetScript("OnClick", function()
+            setFn(not getFn())
+            row:UpdateState()
+        end)
+        if tipDesc then
+            row:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText(tipTitle or label, 1, 0.85, 0.25)
+                GameTooltip:AddLine(tipDesc, 0.9, 0.9, 0.9, true)
+                GameTooltip:Show()
+            end)
+            row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        end
+        function row:UpdateState()
+            local on = getFn()
+            if on then
+                mk:SetText("|cff40ff40V|r")
+                PS.StyleBox(chk, 0.80, true)
+                txt:SetTextColor(0.95, 0.95, 0.95)
+            else
+                mk:SetText("")
+                PS.StyleBox(chk, 0.55, false)
+                txt:SetTextColor(0.62, 0.66, 0.72)
+            end
+        end
+        row:UpdateState()
+        return row
+    end
+
+    local function CreateSimpleBtn(parent, x, y, w, h, text, kind, onClick, tip)
+        local b = CreateFrame("Button", nil, parent)
+        b:SetSize(w, h)
+        if x and y then b:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y) end
+        PS.StyleBtn(b, kind or "dark")
+        local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint("CENTER", 0, 0)
+        fs:SetText(text)
+        b.txt = fs
+        if onClick then b:SetScript("OnClick", onClick) end
+        if tip then
+            b:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                GameTooltip:SetText(text, 1, 0.85, 0.25)
+                GameTooltip:AddLine(tip, 0.9, 0.9, 0.9, true)
+                GameTooltip:Show()
+            end)
+            b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        end
+        return b
+    end
+
+    function TalorianTP._BuildSettingsPanel(f, contentFrame)
+        local sp = CreateFrame("Frame", nil, contentFrame)
+        sp:SetAllPoints()
+        f.settingsPanel = sp
+
+        local sTitle = sp:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+        sTitle:SetPoint("TOPLEFT", 4, -2)
+        sTitle:SetText("|cfffce08cНастройка интерфейса и быстрые макросы|r")
+
+        local sDesc = sp:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        sDesc:SetPoint("TOPLEFT", 4, -22)
+        sDesc:SetJustifyH("LEFT")
+        sDesc:SetText("|cff94a3b8Отключайте лишние блоки интерфейса в реальном времени или создавайте макросы в /macro.|r")
+
+        local wizardBtn = CreateSimpleBtn(sp, nil, nil, 240, 26, "|cffffd200Мастер выбора блоков (первый запуск)|r", "gold", function()
+            TalorianTP:ShowOnboardingWizard(true)
+        end, "Открывает удобное окно с подробным описанием каждого блока и быстрыми пресетами.")
+        wizardBtn:SetPoint("TOPRIGHT", sp, "TOPRIGHT", -2, -6)
+
+        local function AddDiv(p, y, pad, isGold)
+            local d = p:CreateTexture(nil, "ARTWORK")
+            d:SetTexture("Interface\\Buttons\\WHITE8X8")
+            if isGold then
+                d:SetVertexColor(0.95, 0.78, 0.28, 0.25)
+            else
+                d:SetVertexColor(1, 1, 1, 0.09)
+            end
+            d:SetHeight(1)
+            d:SetPoint("TOPLEFT", pad or 10, y)
+            d:SetPoint("TOPRIGHT", -(pad or 10), y)
+            return d
+        end
+
+        AddDiv(sp, -40, 4, true)
+
+        -- Left Top Card: Character Macros
+        local macroCard = CreateFrame("Frame", nil, sp)
+        macroCard:SetPoint("TOPLEFT", 2, -46)
+        macroCard:SetSize(426, 154)
+        PS.StyleBox(macroCard, 0.48, false)
+
+        local mbTitle = macroCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        mbTitle:SetPoint("TOPLEFT", 10, -8)
+        mbTitle:SetText("|cffffd200Быстрые макросы персонажа (/macro)|r")
+
+        AddDiv(macroCard, -25, 10, false)
+
+        local btnM1 = CreateSimpleBtn(macroCard, 10, -32, 406, 24, "|cfff7dfb5Создать макрос выбранного инста|r", "dark", function()
+            TalorianTP_ToggleMacroForDest()
+        end)
+        f.btnM1 = btnM1
+
+        CreateSimpleBtn(macroCard, 10, -60, 200, 24, "|cffffd2004 топ-рейд макроса|r", "dark", function()
+            TalorianTP_CreateMacro_TopRaids()
+        end, "Создает макросы ЦЛК, ИК, РС и Наксрамас.")
+        CreateSimpleBtn(macroCard, 216, -60, 200, 24, "|cff40ff40Макрос Баффера (T_Баффер)|r", "green", function()
+            TalorianTP_CreateMacro_Buffer()
+        end, "Макрос быстрого переключения Талориана в режим баффера.")
+
+        AddDiv(macroCard, -90, 10, false)
+
+        local delHint = macroCard:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        delHint:SetPoint("TOPLEFT", 10, -96)
+        delHint:SetText("Очистка макросов TalorianTP:")
+
+        CreateSimpleBtn(macroCard, 10, -114, 200, 24, "|cffff8080Удалить 4 топ-рейд макроса|r", "red", function()
+            TalorianTP_Delete_TopRaids()
+        end)
+        CreateSimpleBtn(macroCard, 216, -114, 200, 24, "|cffff5555Удалить ВСЕ макросы аддона|r", "red", function()
+            TalorianTP_DeleteAllTalorianMacros()
+        end)
+
+        -- Left Bottom Card: Main Window Block Visibility
+        local blkCard = CreateFrame("Frame", nil, sp)
+        blkCard:SetPoint("TOPLEFT", 2, -206)
+        blkCard:SetPoint("BOTTOMLEFT", 2, 2)
+        blkCard:SetWidth(426)
+        PS.StyleBox(blkCard, 0.48, false)
+
+        local bcTitle = blkCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        bcTitle:SetPoint("TOPLEFT", 10, -8)
+        bcTitle:SetText("|cffffd200Отображаемые блоки главного окна|r")
+
+        CreateSimpleBtn(blkCard, 242, -5, 54, 18, "Все", "dark", function() TalorianTP:ApplyUIBlockPreset("full") end, "Включить все блоки интерфейса.")
+        CreateSimpleBtn(blkCard, 300, -5, 58, 18, "Мин.", "dark", function() TalorianTP:ApplyUIBlockPreset("minimal") end, "Минимальный режим: только телепорты и столицы.")
+        CreateSimpleBtn(blkCard, 362, -5, 54, 18, "Фарм", "dark", function() TalorianTP:ApplyUIBlockPreset("teleport_progress") end, "Телепорты + освоение без вкладки Спутников.")
+
+        AddDiv(blkCard, -26, 10, false)
+
+        local checkRows = {}
+        local mainKeys = {
+            { "modeBar",      "Панель режимов" },
+            { "diffBar",      "Сложность и топ-рейды" },
+            { "cardProgress", "Прогресс на карточках" },
+            { "headerUtils",  "Сброс КД / Бинд / Статус" },
+            { "bottomTools",  "Нижняя панель кнопок" },
+            { "tabServer",    "Вкладка «Спутники»" },
+            { "minimapBtn",   "Кнопка у миникарты" },
+            { "auctionTrade", "Помощник на аукционе" },
+        }
+        local defByKey = {}
+        for _, d in ipairs(UI_BLOCK_DEFS) do defByKey[d.key] = d end
+
+        for idx, item in ipairs(mainKeys) do
+            local col = (idx - 1) % 2
+            local row = math.floor((idx - 1) / 2)
+            local def = defByKey[item[1]]
+            checkRows[#checkRows + 1] = MakeUiCheck(
+                blkCard,
+                10 + col * 206, -34 - row * 24, 200, 22,
+                item[2],
+                function() return TalorianTP:IsBlockEnabled(item[1]) end,
+                function(nv) TalorianTP:SetBlockEnabled(item[1], nv) end,
+                def and def.title or item[2],
+                def and def.desc
+            )
+        end
+
+        local tipFoot = blkCard:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        tipFoot:SetPoint("BOTTOMLEFT", 10, 8)
+        tipFoot:SetPoint("BOTTOMRIGHT", -10, 8)
+        tipFoot:SetJustifyH("LEFT")
+        tipFoot:SetText("|cff8896a8Совет: команда /ttp blocks в любой момент откроет мастер с подробным описанием каждого блока.|r")
+
+        -- Right Top Card: Server Tab Sub-blocks
+        local srvCard = CreateFrame("Frame", nil, sp)
+        srvCard:SetPoint("TOPLEFT", 436, -46)
+        srvCard:SetPoint("TOPRIGHT", -2, -46)
+        srvCard:SetHeight(124)
+        PS.StyleBox(srvCard, 0.48, false)
+
+        local scTitle = srvCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        scTitle:SetPoint("TOPLEFT", 12, -8)
+        scTitle:SetText("|cffffd200Блоки внутри «Спутники и Наборы»|r")
+
+        AddDiv(srvCard, -25, 12, false)
+
+        local srvKeys = {
+            { "srvCol1", "Баффы помощника, доп. спутники и Сейф золота" },
+            { "srvCol2", "Талисман на голову, Сложность данжей и Счетчик XP/DPS" },
+            { "srvCol3", "Пресеты талантов/ковки и Указатель цели (3D-стрелка)" },
+        }
+        for idx, item in ipairs(srvKeys) do
+            local def = defByKey[item[1]]
+            checkRows[#checkRows + 1] = MakeUiCheck(
+                srvCard,
+                12, -32 - (idx - 1) * 26, 404, 24,
+                item[2],
+                function() return TalorianTP:IsBlockEnabled(item[1]) end,
+                function(nv) TalorianTP:SetBlockEnabled(item[1], nv) end,
+                def and def.title or item[2],
+                def and def.desc
+            )
+        end
+
+        -- Right Bottom Card: Credits & Version Info
+        local creditsBox = CreateFrame("Frame", nil, sp)
+        creditsBox:SetPoint("TOPLEFT", 436, -176)
+        creditsBox:SetPoint("BOTTOMRIGHT", -2, 2)
+        PS.StyleBox(creditsBox, 0.48, false)
+
+        local crTitle = creditsBox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        crTitle:SetPoint("TOPLEFT", 12, -10)
+        crTitle:SetText("|cffffd200О проекте TalorianTP|r |cff38bdf8v" .. TALORIAN_VERSION .. "|r")
+
+        AddDiv(creditsBox, -27, 12, false)
+
+        local crText = creditsBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        crText:SetPoint("TOPLEFT", 12, -34)
+        crText:SetPoint("RIGHT", -12, 0)
+        crText:SetJustifyH("LEFT")
+        if crText.SetSpacing then crText:SetSpacing(5) end
+        crText:SetText(
+            "|cffc8bea8По вопросам писать:|r |cffffd200Sodoesqai|r\n" ..
+            "|cffc8bea8Слова благодарности за мотивацию и подсказки:|r |cff40ff40Motherofgod|r\n" ..
+            "|cffc8bea8Благодарность|r |cff38bdf8Дуре|r |cffc8bea8за вынос кнопки сброса кд|r\n" ..
+            "|cffc8bea8По багам -|r |cff38bdf8https://t.me/sodooqie|r"
+        )
+        f.creditsText = crText
+
+        local bugLabel = creditsBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        bugLabel:SetPoint("TOPLEFT", 12, -120)
+        bugLabel:SetText("Ссылка для копирования (Ctrl+C):")
+
+        local bugEdit = CreateFrame("EditBox", "TalorianBugLinkEditBox", creditsBox)
+        bugEdit:SetSize(250, 22)
+        bugEdit:SetPoint("TOPLEFT", 12, -136)
+        if bugEdit.SetAutoFocus then bugEdit:SetAutoFocus(false) end
+        if bugEdit.SetFontObject and GameFontHighlightSmall then bugEdit:SetFontObject(GameFontHighlightSmall) end
+        PS.StyleBox(bugEdit, 0.65)
+        if bugEdit.SetTextInsets then bugEdit:SetTextInsets(6, 6, 0, 0) end
+        if bugEdit.SetText then bugEdit:SetText("https://t.me/sodooqie") end
+        bugEdit:SetScript("OnEscapePressed", function(self) if self.ClearFocus then self:ClearFocus() end end)
+        bugEdit:SetScript("OnEditFocusGained", function(self) if self.HighlightText then self:HighlightText() end end)
+        bugEdit:SetScript("OnChar", function(self)
+            if self.SetText then self:SetText("https://t.me/sodooqie") end
+            if self.HighlightText then self:HighlightText() end
+        end)
+
+        CreateSimpleBtn(creditsBox, 268, -136, 144, 22, "Снова показать мастер", "dark", function()
+            TalorianTP:ShowOnboardingWizard(true)
+        end)
+
+        function f:UpdateSettingsUI()
+            for _, r in ipairs(checkRows) do
+                if r and r.UpdateState then r:UpdateState() end
+            end
+        end
+    end
+
+    function TalorianTP:ShowOnboardingWizard(force)
+        self:EnsureUIDB()
+        if not force and TalorianTP_DB.uiOnboardingDone == true then
+            return nil
+        end
+        if onboardingFrame then
+            onboardingFrame:Show()
+            if onboardingFrame.RefreshRows then onboardingFrame:RefreshRows() end
+            RaiseFrameFront(onboardingFrame)
+            return onboardingFrame
+        end
+
+        local wf = CreateFrame("Frame", "TalorianOnboardingFrame", UIParent)
+        wf:SetSize(610, 504)
+        wf:SetPoint("CENTER", 20, -10)
+        wf:SetFrameStrata("DIALOG")
+        wf:SetToplevel(true)
+        wf:EnableMouse(true)
+        wf:SetMovable(true)
+        wf:RegisterForDrag("LeftButton")
+        wf:SetScript("OnDragStart", wf.StartMoving)
+        wf:SetScript("OnDragStop", wf.StopMovingOrSizing)
+        wf:SetClampedToScreen(true)
+        PS.ApplyWindow(wf)
+        RegisterSpecialFrame("TalorianOnboardingFrame")
+
+        local wTitle = wf:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+        wTitle:SetPoint("TOPLEFT", 16, -14)
+        wTitle:SetText("|cfffce08cДобро пожаловать в TalorianTP v" .. TALORIAN_VERSION .. "|r")
+
+        local wSub = wf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        wSub:SetPoint("TOPLEFT", 16, -34)
+        wSub:SetPoint("TOPRIGHT", -46, -34)
+        wSub:SetJustifyH("LEFT")
+        wSub:SetText("|cffc8bea8Выберите, какие блоки показывать в окне (изменения видны сразу). Вернуться можно в Настройках или по команде /ttp blocks.|r")
+
+        local wClose = CreateFrame("Button", nil, wf)
+        wClose:SetSize(24, 24)
+        wClose:SetPoint("TOPRIGHT", -12, -12)
+        PS.StyleClose(wClose, 24)
+        wClose:SetScript("OnClick", function()
+            TalorianTP:EnsureUIDB()
+            TalorianTP_DB.uiOnboardingDone = true
+            wf:Hide()
+        end)
+
+        -- Quick Presets Row
+        local preLbl = wf:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        preLbl:SetPoint("TOPLEFT", 16, -66)
+        preLbl:SetText("|cffffd200Готовые наборы:|r")
+
+        wf.presetFullBtn = CreateSimpleBtn(wf, 128, -61, 146, 22, "Все включено (Полный)", "green", function()
+            TalorianTP:ApplyUIBlockPreset("full")
+        end)
+        wf.presetMinBtn = CreateSimpleBtn(wf, 280, -61, 152, 22, "Только телепорт", "dark", function()
+            TalorianTP:ApplyUIBlockPreset("minimal")
+        end)
+        wf.presetProgBtn = CreateSimpleBtn(wf, 438, -61, 156, 22, "Телепорт + освоение", "dark", function()
+            TalorianTP:ApplyUIBlockPreset("teleport_progress")
+        end)
+
+        local listBox = CreateFrame("Frame", nil, wf)
+        listBox:SetPoint("TOPLEFT", 14, -90)
+        listBox:SetPoint("BOTTOMRIGHT", -14, 48)
+        PS.StyleBox(listBox, 0.50, false)
+
+        local VIS = 7
+        local ROW_H = 50
+        local rows = {}
+        local sf
+        sf = PS.AttachScroll(listBox, VIS * ROW_H, ROW_H, VIS, function()
+            if wf.RenderRows then wf:RenderRows() end
+        end)
+        sf:SetPoint("TOPLEFT", listBox, "TOPLEFT", 4, -4)
+        sf:SetPoint("BOTTOMRIGHT", listBox, "BOTTOMRIGHT", -4, 4)
+        wf.sf = sf
+
+        for i = 1, VIS do
+            local r = CreateFrame("Button", nil, sf)
+            r:SetHeight(ROW_H - 2)
+            r:SetPoint("TOPLEFT", sf, "TOPLEFT", 0, -(i - 1) * ROW_H)
+            r:SetPoint("TOPRIGHT", sf, "TOPRIGHT", -16, -(i - 1) * ROW_H)
+            local rowAlpha = ((i % 2) == 1) and 0.44 or 0.30
+            PS.StyleBox(r, rowAlpha, false)
+            r:SetScript("OnEnter", function(self) PS.StyleBox(self, 0.56, true) end)
+            r:SetScript("OnLeave", function(self) PS.StyleBox(self, rowAlpha, false) end)
+
+            local chk = CreateFrame("Frame", nil, r)
+            chk:SetSize(18, 18)
+            chk:SetPoint("TOPLEFT", r, "TOPLEFT", 8, -8)
+            PS.StyleBox(chk, 0.72, false)
+            r.chk = chk
+
+            local mk = chk:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            mk:SetPoint("CENTER", 0, 0)
+            r.mk = mk
+
+            local ttl = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            ttl:SetPoint("TOPLEFT", chk, "TOPRIGHT", 8, 1)
+            ttl:SetPoint("RIGHT", r, "RIGHT", -8, 0)
+            ttl:SetJustifyH("LEFT")
+            r.ttl = ttl
+
+            local dsc = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            dsc:SetPoint("TOPLEFT", ttl, "BOTTOMLEFT", 0, -2)
+            dsc:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", -8, 4)
+            dsc:SetJustifyH("LEFT")
+            dsc:SetJustifyV("TOP")
+            dsc:SetTextColor(0.68, 0.74, 0.82)
+            r.dsc = dsc
+
+            r:SetScript("OnClick", function(self)
+                if not self._def then return end
+                local cur = TalorianTP:IsBlockEnabled(self._def.key)
+                TalorianTP:SetBlockEnabled(self._def.key, not cur)
+            end)
+            rows[i] = r
+        end
+        wf.rows = rows
+
+        function wf:RenderRows()
+            TalorianTP:EnsureUIDB()
+            local off = sf.offset or 0
+            for i = 1, VIS do
+                local r = rows[i]
+                local def = UI_BLOCK_DEFS[off + i]
+                if def then
+                    r._def = def
+                    local on = TalorianTP:IsBlockEnabled(def.key)
+                    r.ttl:SetText(on and ("|cffffd200" .. def.title .. "|r") or ("|cff7c8594" .. def.title .. " (скрыт)|r"))
+                    r.dsc:SetText(def.desc or "")
+                    if on then
+                        r.mk:SetText("|cff40ff40V|r")
+                        PS.StyleBox(r.chk, 0.80, true)
+                    else
+                        r.mk:SetText("")
+                        PS.StyleBox(r.chk, 0.55, false)
+                    end
+                    r:Show()
+                else
+                    r._def = nil
+                    r:Hide()
+                end
+            end
+        end
+
+        function wf:RefreshRows()
+            sf:SetTotal(#UI_BLOCK_DEFS, true)
+        end
+
+        local footNote = wf:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        footNote:SetPoint("BOTTOMLEFT", 16, 17)
+        footNote:SetText("Вы всегда можете изменить набор в Настройках.")
+
+        wf.skipBtn = CreateSimpleBtn(wf, nil, nil, 170, 26, "Оставить все и закрыть", "dark", function()
+            TalorianTP:EnsureUIDB()
+            TalorianTP_DB.uiOnboardingDone = true
+            TalorianTP:ApplyUIBlockPreset("full")
+            wf:Hide()
+        end)
+        wf.skipBtn:SetPoint("BOTTOMRIGHT", wf, "BOTTOMRIGHT", -196, 12)
+
+        wf.applyBtn = CreateSimpleBtn(wf, nil, nil, 176, 26, "|cff40ff40Применить и сохранить|r", "green", function()
+            TalorianTP:EnsureUIDB()
+            TalorianTP_DB.uiOnboardingDone = true
+            TalorianTP:ApplyUIBlocks()
+            wf:Hide()
+        end)
+        wf.applyBtn:SetPoint("BOTTOMRIGHT", wf, "BOTTOMRIGHT", -14, 12)
+
+        wf:RefreshRows()
+        wf:Show()
+        RaiseFrameFront(wf)
+        onboardingFrame = wf
+        return wf
+    end
+end
+
 local function InitTalorianUI()
     if mainUI then return mainUI end
 
@@ -2286,6 +2928,14 @@ local function InitTalorianUI()
     local statusTxt = statusBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     statusTxt:SetPoint("CENTER", 0, 0)
     statusBtn.txt = statusTxt
+    f.statusBtn = statusBtn
+
+    local hdrDiv = f:CreateTexture(nil, "ARTWORK")
+    hdrDiv:SetTexture("Interface\\Buttons\\WHITE8X8")
+    hdrDiv:SetVertexColor(0.95, 0.78, 0.28, 0.22)
+    hdrDiv:SetHeight(1)
+    hdrDiv:SetPoint("TOPLEFT", 16, -46)
+    hdrDiv:SetPoint("TOPRIGHT", -16, -46)
 
     function f:UpdateStatusButton()
         local en = TalorianTP_DB and TalorianTP_DB.enabled
@@ -2370,6 +3020,7 @@ local function InitTalorianUI()
     modeBar:SetPoint("TOPLEFT", 16, -50)
     modeBar:SetPoint("TOPRIGHT", -16, -50)
     modeBar:SetHeight(26)
+    f.modeBar = modeBar
 
     local modeLabel = modeBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     modeLabel:SetPoint("LEFT", 0, 0)
@@ -3210,118 +3861,8 @@ local function InitTalorianUI()
         table.insert(f.destButtons, btn)
     end
 
-    -- Вкладка 4: Помощник и Настройки
-    local settingsPanel = CreateFrame("Frame", nil, contentFrame)
-    settingsPanel:SetAllPoints()
-    f.settingsPanel = settingsPanel
-
-    local sTitle = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-    sTitle:SetPoint("TOPLEFT", 12, -12)
-    sTitle:SetText("|cfffce08cУправление и Быстрые Макросы|r")
-
-    local sDesc = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    sDesc:SetPoint("TOPLEFT", 12, -40)
-    sDesc:SetPoint("RIGHT", -12, 0)
-    sDesc:SetJustifyH("LEFT")
-    sDesc:SetText("|cffc8bea8Все созданные макросы автоматически заносятся в|r |cffffd200Макросы персонажа (/macro)|r.\n|cffc8bea8Они автоматически призывают Талориана (если он отсутствует), выбирают его в таргет и телепортируют в выбранный инст без лишних кликов.|r")
-
-    local macroBox = CreateFrame("Frame", nil, settingsPanel)
-    macroBox:SetPoint("TOPLEFT", 12, -90)
-    macroBox:SetPoint("BOTTOMRIGHT", -12, 12)
-    PS.StyleBox(macroBox, 0.45)
-
-    local mbTitle = macroBox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    mbTitle:SetPoint("TOPLEFT", 12, -10)
-    mbTitle:SetText("|cffffd200Макросы персонажа (/macro):|r")
-
-    local btnM1 = CreateFrame("Button", nil, macroBox)
-    btnM1:SetSize(280, 28)
-    btnM1:SetPoint("TOPLEFT", 12, -38)
-    PS.StyleBtn(btnM1, "dark")
-    local btnM1Txt = btnM1:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    btnM1Txt:SetPoint("CENTER", 0, 0)
-    btnM1Txt:SetText("|cfff7dfb5Создать макрос выбранного инста|r")
-    btnM1.txt = btnM1Txt
-    f.btnM1 = btnM1
-    btnM1:SetScript("OnClick", function() TalorianTP_ToggleMacroForDest() end)
-
-    local btnM2 = CreateFrame("Button", nil, macroBox)
-    btnM2:SetSize(280, 28)
-    btnM2:SetPoint("TOPLEFT", 12, -74)
-    PS.StyleBtn(btnM2, "dark")
-    local btnM2Txt = btnM2:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    btnM2Txt:SetPoint("CENTER", 0, 0)
-    btnM2Txt:SetText("|cffffd200Создать 4 топ-рейд макроса (ЦЛК, ИК, РС, Накс)|r")
-    btnM2:SetScript("OnClick", function() TalorianTP_CreateMacro_TopRaids() end)
-
-    local btnM3 = CreateFrame("Button", nil, macroBox)
-    btnM3:SetSize(280, 28)
-    btnM3:SetPoint("TOPLEFT", 12, -110)
-    PS.StyleBtn(btnM3, "green")
-    local btnM3Txt = btnM3:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    btnM3Txt:SetPoint("CENTER", 0, 0)
-    btnM3Txt:SetText("|cff40ff40Создать макрос Баффера (T_Баффер)|r")
-    btnM3:SetScript("OnClick", function() TalorianTP_CreateMacro_Buffer() end)
-
-    local btnM4 = CreateFrame("Button", nil, macroBox)
-    btnM4:SetSize(280, 28)
-    btnM4:SetPoint("TOPLEFT", 12, -150)
-    PS.StyleBtn(btnM4, "red")
-    local btnM4Txt = btnM4:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    btnM4Txt:SetPoint("CENTER", 0, 0)
-    btnM4Txt:SetText("|cffff7070Удалить 4 топ-рейд макроса|r")
-    btnM4:SetScript("OnClick", function() TalorianTP_Delete_TopRaids() end)
-
-    local btnM5 = CreateFrame("Button", nil, macroBox)
-    btnM5:SetSize(280, 28)
-    btnM5:SetPoint("TOPLEFT", 12, -186)
-    PS.StyleBtn(btnM5, "red")
-    local btnM5Txt = btnM5:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    btnM5Txt:SetPoint("CENTER", 0, 0)
-    btnM5Txt:SetText("|cffff5555Удалить ВСЕ макросы TalorianTP|r")
-    btnM5:SetScript("OnClick", function() TalorianTP_DeleteAllTalorianMacros() end)
-
-    -- Блок информации о разработке и благодарностей (справа в настройках)
-    local creditsBox = CreateFrame("Frame", nil, macroBox)
-    creditsBox:SetPoint("TOPLEFT", 316, -10)
-    creditsBox:SetPoint("BOTTOMRIGHT", -12, 12)
-    PS.StyleBox(creditsBox, 0.50)
-
-    local crTitle = creditsBox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    crTitle:SetPoint("TOPLEFT", 14, -12)
-    crTitle:SetText("|cffffd200Информация о разработке:|r")
-
-    local crText = creditsBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    crText:SetPoint("TOPLEFT", 14, -38)
-    crText:SetPoint("RIGHT", -14, 0)
-    crText:SetJustifyH("LEFT")
-    if crText.SetSpacing then crText:SetSpacing(6) end
-    crText:SetText(
-        "|cffc8bea8По вопросам писать:|r |cffffd200Sodoesqai|r\n" ..
-        "|cffc8bea8Слова благодарности за мотивацию и подсказки:|r |cff40ff40Motherofgod|r\n" ..
-        "|cffc8bea8Благодарность|r |cff38bdf8Дуре|r |cffc8bea8за вынос кнопки сброса кд|r\n" ..
-        "|cffc8bea8По багам -|r |cff38bdf8https://t.me/sodooqie|r"
-    )
-    f.creditsText = crText
-
-    local bugLabel = creditsBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    bugLabel:SetPoint("TOPLEFT", 14, -130)
-    bugLabel:SetText("Ссылка для копирования (Ctrl+C):")
-
-    local bugEdit = CreateFrame("EditBox", "TalorianBugLinkEditBox", creditsBox)
-    bugEdit:SetSize(260, 22)
-    bugEdit:SetPoint("TOPLEFT", 14, -146)
-    if bugEdit.SetAutoFocus then bugEdit:SetAutoFocus(false) end
-    if bugEdit.SetFontObject and GameFontHighlightSmall then bugEdit:SetFontObject(GameFontHighlightSmall) end
-    PS.StyleBox(bugEdit, 0.65)
-    if bugEdit.SetTextInsets then bugEdit:SetTextInsets(6, 6, 0, 0) end
-    if bugEdit.SetText then bugEdit:SetText("https://t.me/sodooqie") end
-    bugEdit:SetScript("OnEscapePressed", function(self) if self.ClearFocus then self:ClearFocus() end end)
-    bugEdit:SetScript("OnEditFocusGained", function(self) if self.HighlightText then self:HighlightText() end end)
-    bugEdit:SetScript("OnChar", function(self)
-        if self.SetText then self:SetText("https://t.me/sodooqie") end
-        if self.HighlightText then self:HighlightText() end
-    end)
+    -- Вкладка 4: Настройки, Макросы и Модули интерфейса
+    TalorianTP._BuildSettingsPanel(f, contentFrame)
 
     -- Вкладка 5: Сервер и Билды (Hardmode Server Control Hub)
     local serverPanel = (type(TalorianTP.BuildServerCtrlPanel) == "function")
@@ -3329,7 +3870,67 @@ local function InitTalorianUI()
         or CreateFrame("Frame", nil, contentFrame)
     f.serverPanel = serverPanel
 
-    -- Переключение вкладок
+    function f:ApplyBlockLayout()
+        TalorianTP:EnsureUIDB()
+        local hdrOn = TalorianTP:IsBlockEnabled("headerUtils")
+        if self.resetBtn then if hdrOn then self.resetBtn:Show() else self.resetBtn:Hide() end end
+        if self.bindBtn then if hdrOn then self.bindBtn:Show() else self.bindBtn:Hide() end end
+        if self.statusBtn then if hdrOn then self.statusBtn:Show() else self.statusBtn:Hide() end end
+
+        local curY = -50
+        if TalorianTP:IsBlockEnabled("modeBar") then
+            self.modeBar:ClearAllPoints()
+            self.modeBar:SetPoint("TOPLEFT", 16, curY)
+            self.modeBar:SetPoint("TOPRIGHT", -16, curY)
+            self.modeBar:Show()
+            curY = curY - 30
+        else
+            self.modeBar:Hide()
+        end
+
+        local srvTabOn = TalorianTP:IsBlockEnabled("tabServer")
+        local visTabs = {}
+        for _, tab in ipairs(self.tabs) do
+            if tab.id ~= 5 or srvTabOn then
+                visTabs[#visTabs + 1] = tab
+                tab:Show()
+            else
+                tab:Hide()
+            end
+        end
+        local nVis = math.max(1, #visTabs)
+        local tW = (MAIN_W - 32 - (nVis - 1) * 4) / nVis
+        for idx, tab in ipairs(visTabs) do
+            tab:SetSize(tW, 26)
+            tab:ClearAllPoints()
+            tab:SetPoint("TOPLEFT", 16 + (idx - 1) * (tW + 4), curY)
+        end
+        curY = curY - 30
+        self.afterTabsY = curY
+
+        if self.statusBar then
+            if TalorianTP:IsBlockEnabled("bottomTools") then
+                self.statusBar:Show()
+            else
+                self.statusBar:Hide()
+            end
+        end
+
+        if TalorianTP_DB and TalorianTP_DB.activeTab == 5 and not srvTabOn then
+            TalorianTP_DB.activeTab = 1
+        end
+        local activeId = (TalorianTP_DB and TalorianTP_DB.activeTab) or 1
+        self:SwitchTab(activeId)
+
+        if self.serverPanel and self.serverPanel.RefreshLayout then
+            self.serverPanel:RefreshLayout()
+        end
+        if self.UpdateSettingsUI then
+            self:UpdateSettingsUI()
+        end
+    end
+
+    -- Переключение вкладок с динамическим перераспределением высоты
     function f:SwitchTab(tabId)
         for _, tab in ipairs(self.tabs) do
             if tab.id == tabId then
@@ -3341,31 +3942,55 @@ local function InitTalorianUI()
             end
         end
 
+        local y = self.afterTabsY or -108
+        local showDiff = (tabId == 1 or tabId == 2) and TalorianTP:IsBlockEnabled("diffBar")
+        local botPad = TalorianTP:IsBlockEnabled("bottomTools") and 46 or 14
+
+        if showDiff and self.diffBar then
+            self.diffBar:ClearAllPoints()
+            self.diffBar:SetPoint("TOPLEFT", 16, y)
+            self.diffBar:SetPoint("TOPRIGHT", -16, y)
+            self.diffBar:Show()
+            y = y - 28
+        elseif self.diffBar then
+            self.diffBar:Hide()
+        end
+
         if tabId == 1 then
+            self.raidEraBar:ClearAllPoints()
+            self.raidEraBar:SetPoint("TOPLEFT", 16, y)
+            self.raidEraBar:SetPoint("TOPRIGHT", -16, y)
             self.raidEraBar:Show()
             self:UpdateRaidEraHighlight()
+            y = y - 30
             self.dungeonEraBar:Hide()
-            self.diffLabel:Show()
-            for _, db in ipairs(self.dungeonDiffBtns) do db:Hide() end
-            if self.dungeonSingleDiffBtn then self.dungeonSingleDiffBtn:Hide() end
-            for _, qb in ipairs(self.quickRaidBtns) do qb:Show() end
-            self.fourMacroBtn:Show()
+            if showDiff then
+                self.diffLabel:Show()
+                for _, db in ipairs(self.dungeonDiffBtns) do db:Hide() end
+                if self.dungeonSingleDiffBtn then self.dungeonSingleDiffBtn:Hide() end
+                for _, qb in ipairs(self.quickRaidBtns) do qb:Show() end
+                self.fourMacroBtn:Show()
+            end
             self.settingsPanel:Hide()
             if self.serverPanel then self.serverPanel:Hide() end
-            self.contentFrame:SetPoint("TOPLEFT", 16, -168)
             for _, btn in ipairs(self.destButtons) do btn:Show() end
         elseif tabId == 2 then
             self.raidEraBar:Hide()
+            self.dungeonEraBar:ClearAllPoints()
+            self.dungeonEraBar:SetPoint("TOPLEFT", 16, y)
+            self.dungeonEraBar:SetPoint("TOPRIGHT", -16, y)
             self.dungeonEraBar:Show()
             self:UpdateDungeonEraHighlight()
-            self.diffLabel:Show()
-            for _, rb in ipairs(self.raidDiffBtns) do rb:Hide() end
-            if self.raidSingleDiffBtn then self.raidSingleDiffBtn:Hide() end
-            for _, qb in ipairs(self.quickRaidBtns) do qb:Hide() end
-            self.fourMacroBtn:Hide()
+            y = y - 30
+            if showDiff then
+                self.diffLabel:Show()
+                for _, rb in ipairs(self.raidDiffBtns) do rb:Hide() end
+                if self.raidSingleDiffBtn then self.raidSingleDiffBtn:Hide() end
+                for _, qb in ipairs(self.quickRaidBtns) do qb:Hide() end
+                self.fourMacroBtn:Hide()
+            end
             self.settingsPanel:Hide()
             if self.serverPanel then self.serverPanel:Hide() end
-            self.contentFrame:SetPoint("TOPLEFT", 16, -168)
             for _, btn in ipairs(self.destButtons) do btn:Show() end
         elseif tabId == 3 then
             self.raidEraBar:Hide()
@@ -3379,7 +4004,6 @@ local function InitTalorianUI()
             self.fourMacroBtn:Hide()
             self.settingsPanel:Hide()
             if self.serverPanel then self.serverPanel:Hide() end
-            self.contentFrame:SetPoint("TOPLEFT", 16, -138)
             for _, btn in ipairs(self.destButtons) do btn:Show() end
         elseif tabId == 4 then
             self.raidEraBar:Hide()
@@ -3392,8 +4016,8 @@ local function InitTalorianUI()
             for _, qb in ipairs(self.quickRaidBtns) do qb:Hide() end
             self.fourMacroBtn:Hide()
             for _, btn in ipairs(self.destButtons) do btn:Hide() end
-            self.contentFrame:SetPoint("TOPLEFT", 16, -138)
             if self.serverPanel then self.serverPanel:Hide() end
+            if self.UpdateSettingsUI then self:UpdateSettingsUI() end
             self.settingsPanel:Show()
         elseif tabId == 5 then
             self.raidEraBar:Hide()
@@ -3407,12 +4031,16 @@ local function InitTalorianUI()
             self.fourMacroBtn:Hide()
             for _, btn in ipairs(self.destButtons) do btn:Hide() end
             self.settingsPanel:Hide()
-            self.contentFrame:SetPoint("TOPLEFT", 16, -138)
             if self.serverPanel then
                 self.serverPanel:Show()
+                if self.serverPanel.RefreshLayout then self.serverPanel:RefreshLayout() end
                 if self.serverPanel.Refresh then self.serverPanel:Refresh() end
             end
         end
+
+        self.contentFrame:ClearAllPoints()
+        self.contentFrame:SetPoint("TOPLEFT", 16, y)
+        self.contentFrame:SetPoint("BOTTOMRIGHT", -16, botPad)
 
         if tabId ~= 4 then
             local eb = rawget(_G, "TalorianBugLinkEditBox")
@@ -3475,6 +4103,7 @@ local function InitTalorianUI()
         end
 
         local ap = rawget(_G, "AttuneParser")
+        local showCardProg = TalorianTP:IsBlockEnabled("cardProgress")
         local totalSlots = #self.destButtons
         for slotIdx = 1, totalSlots do
             local btn = self.destButtons[slotIdx]
@@ -3506,7 +4135,7 @@ local function InitTalorianUI()
                 end
 
                 local curD = data.isRaid and raidDiff or dungeonDiff
-                if ap and ap.GetZoneAnalysis and data.attune then
+                if showCardProg and ap and ap.GetZoneAnalysis and data.attune then
                     local za = ap:GetZoneAnalysis(data.attune, {
                         diffId = curD,
                         isRaid = data.isRaid,
@@ -3605,7 +4234,7 @@ local function InitTalorianUI()
         if self.quickRaidBtns then
             for _, qBtn in ipairs(self.quickRaidBtns) do
                 local dest = qBtn.destName and FindDestByName(qBtn.destName) or nil
-                local za = (ap and ap.GetZoneAnalysis and dest and dest.attune) and ap:GetZoneAnalysis(dest.attune, {
+                local za = (showCardProg and ap and ap.GetZoneAnalysis and dest and dest.attune) and ap:GetZoneAnalysis(dest.attune, {
                     diffId = raidDiff, isRaid = true, exp = dest.exp, scope = "hero",
                 }) or nil
                 if qBtn.progBg and za and za.totalPool and za.totalPool > 0 and za.modeAvailable ~= false then
@@ -3629,6 +4258,7 @@ local function InitTalorianUI()
     statusBar:SetPoint("BOTTOMLEFT", 16, 10)
     statusBar:SetPoint("BOTTOMRIGHT", -16, 10)
     statusBar:SetHeight(24)
+    f.statusBar = statusBar
 
     local statusNote = statusBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     statusNote:SetPoint("LEFT", 0, 0)
@@ -3741,7 +4371,7 @@ local function InitTalorianUI()
     f:UpdateBindText()
     f:UpdateModeHighlight()
     f:UpdateStatusNote()
-    f:SwitchTab(TalorianTP_DB and TalorianTP_DB.activeTab or 1)
+    f:ApplyBlockLayout()
 
     f._skipNextShowRefresh = true
     f:HookScript("OnShow", function(self) RaiseFrameFront(self) end)
@@ -3752,13 +4382,21 @@ end
 
 function TalorianTP:OpenUI(tabId)
     TalorianTP_DB = TalorianTP_DB or {}
+    self:EnsureUIDB()
     local ui = InitTalorianUI()
+    if ui.ApplyBlockLayout then ui:ApplyBlockLayout() end
     if tabId then
-        TalorianTP_DB.activeTab = tabId
-        if ui.SwitchTab then ui:SwitchTab(tabId) end
+        if tabId ~= 5 or self:IsBlockEnabled("tabServer") then
+            TalorianTP_DB.activeTab = tabId
+            if ui.SwitchTab then ui:SwitchTab(tabId) end
+        end
     end
     ui:Show()
     RaiseFrameFront(ui)
+    if TalorianTP_DB and not TalorianTP_DB.uiOnboardingDone and not self._onboardingAutoOpened then
+        self._onboardingAutoOpened = true
+        self:ShowOnboardingWizard(false)
+    end
     return ui
 end
 
@@ -3873,9 +4511,10 @@ local minimapButton = nil
 
 local function CreateMinimapButton()
     if not Minimap then return minimapButton end
+    local mmOn = (type(TalorianTP.IsBlockEnabled) ~= "function") or TalorianTP:IsBlockEnabled("minimapBtn")
     if minimapButton then
         UpdateMinimapPos(minimapButton)
-        minimapButton:Show()
+        if mmOn then minimapButton:Show() else minimapButton:Hide() end
         return minimapButton
     end
     local btn = CreateFrame("Button", "TalorianMinimapButton", Minimap)
@@ -3951,7 +4590,7 @@ local function CreateMinimapButton()
     btn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:ClearLines()
-        GameTooltip:AddLine("Talorian v4.2.8", 0.2, 0.7, 1)
+        GameTooltip:AddLine("Talorian v" .. TALORIAN_VERSION, 0.2, 0.7, 1)
         GameTooltip:AddLine("ЛКМ: открыть/закрыть окно аддона", 1, 1, 1)
         GameTooltip:AddLine("ПКМ: быстрое включение/отключение", 0.8, 0.8, 0.8)
         GameTooltip:AddLine("Перетаскивание: перемещение по миникарте", 0.6, 0.6, 0.6)
@@ -3964,7 +4603,7 @@ local function CreateMinimapButton()
     end)
     btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    btn:Show()
+    if mmOn then btn:Show() else btn:Hide() end
     minimapButton = btn
     return btn
 end
@@ -4140,6 +4779,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2)
         if not TalorianTP_DB.dungeonEra then TalorianTP_DB.dungeonEra = "WotLK" end
         if not TalorianTP_DB.interactKey then TalorianTP_DB.interactKey = "ъ" end
         if not TalorianTP_DB.minimapPos then TalorianTP_DB.minimapPos = 192 end
+        TalorianTP:EnsureUIDB()
 
         EnsureSecureExecButton()
 
@@ -4158,7 +4798,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2)
         end
 
         local k = TalorianTP_DB.interactKey or "ъ"
-        DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "v4.2.8 загружен. Открыть: |cffffd200/ttp|r. Бинд взаимодействия: [|cffffffff" .. k .. "|r]")
+        DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "v" .. TALORIAN_VERSION .. " загружен. Открыть: |cffffd200/ttp|r | Блоки UI: |cff40ff40/ttp blocks|r | Бинд: [|cffffffff" .. k .. "|r]")
     elseif event == "PLAYER_LOGIN" then
         pcall(EnsureAttuneParserBridge)
         CreateMinimapButton()
@@ -4336,9 +4976,13 @@ SlashCmdList["TALORIANTP"] = function(msg)
                 end
             end
         end
+    elseif msg == "blocks" or msg == "setup" or msg == "wizard" or msg == "master" then
+        TalorianTP:ShowOnboardingWizard(true)
+        return
     elseif msg == "minimap" then
         TalorianTP_DB = TalorianTP_DB or {}
         if not TalorianTP_DB.minimapPos then TalorianTP_DB.minimapPos = 192 end
+        TalorianTP:SetBlockEnabled("minimapBtn", true)
         CreateMinimapButton()
         RegisterTalorianPrimeHub(true)
         DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "Кнопка у миникарты показана.")
@@ -7577,6 +8221,7 @@ do
         EnsureAuctionButton(#cands, newCount, anchor)
 
         local userHid = (TalorianTP_DB and TalorianTP_DB.hideAuctionPanel)
+            or (type(TalorianTP.IsBlockEnabled) == "function" and not TalorianTP:IsBlockEnabled("auctionTrade"))
         if userHid or (#cands == 0 and not aucForceOpen) then
             if aucFrame then aucFrame:Hide() end
             return
@@ -8952,6 +9597,51 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
     end
     local c1, c2, c3 = cols[1], cols[2], cols[3]
 
+    local function AddColDiv(c, y)
+        local d = c:CreateTexture(nil, "ARTWORK")
+        d:SetTexture("Interface\\Buttons\\WHITE8X8")
+        d:SetVertexColor(1, 1, 1, 0.08)
+        d:SetHeight(1)
+        d:SetPoint("TOPLEFT", c, "TOPLEFT", 10, y)
+        d:SetPoint("TOPRIGHT", c, "TOPRIGHT", -10, y)
+        return d
+    end
+    AddColDiv(c1, -208)
+    AddColDiv(c1, -298)
+    AddColDiv(c2, -156)
+    AddColDiv(c2, -252)
+    AddColDiv(c3, -208)
+
+    local srvEmptyTxt = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    srvEmptyTxt:SetPoint("CENTER", panel, "CENTER", 0, 10)
+    srvEmptyTxt:SetText("|cff94a3b8Все блоки вкладки «Спутники и Наборы» скрыты.\nВключить их можно в Настройках или командой /ttp blocks.|r")
+    srvEmptyTxt:Hide()
+
+    function panel:RefreshLayout()
+        local vis = {}
+        local keys = { "srvCol1", "srvCol2", "srvCol3" }
+        for i = 1, 3 do
+            local on = (type(TalorianTP.IsBlockEnabled) ~= "function") or TalorianTP:IsBlockEnabled(keys[i])
+            if on then
+                vis[#vis + 1] = cols[i]
+                cols[i]:Show()
+            else
+                cols[i]:Hide()
+            end
+        end
+        if #vis == 0 then
+            srvEmptyTxt:Show()
+            return
+        end
+        srvEmptyTxt:Hide()
+        local totalW = #vis * colW + (#vis - 1) * gap
+        local startX = math.max(0, math.floor((864 - totalW) / 2))
+        for idx, c in ipairs(vis) do
+            c:ClearAllPoints()
+            c:SetPoint("TOPLEFT", panel, "TOPLEFT", startX + (idx - 1) * (colW + gap), -2)
+        end
+    end
+
     local function MakeBtn(p, x, y, w, h, label, kind, onClick, tipTitle, tipBody)
         local b = CreateFrame("Button", nil, p)
         b:SetSize(w, h)
@@ -9138,6 +9828,7 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
     scStatusTxt:SetJustifyV("TOP")
 
     function panel:Refresh()
+        if self.RefreshLayout then self:RefreshLayout() end
         local db = EnsureSCDB()
         SC:SyncPepeFromGlobal()
 
