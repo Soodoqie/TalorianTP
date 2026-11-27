@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Bindings>
+    <Binding name="TALORIAN_TP_CURRENT" header="TALORIAN_HEADER">
+        if SummonTalorianIfNeeded then SummonTalorianIfNeeded() end if CheckAndMarkTalorian then CheckAndMarkTalorian() end
+    </Binding>
+    <Binding name="TALORIAN_TP_ICC">
+        TalorianTP_SetTarget("Цитадель Ледяной Короны");
+    </Binding>
+    <Binding name="TALORIAN_TP_TOC">
+        TalorianTP_SetTarget("Испытание крестоносца");
+    </Binding>
+    <Binding name="TALORIAN_TP_RS">
+        TalorianTP_SetTarget("Рубиновое святилище");
+    </Binding>
+    <Binding name="TALORIAN_TP_NAXX">
+        TalorianTP_SetTarget("Наксрамас");
+    </Binding>
+    <Binding name="TALORIAN_RESET_CD">
+        TalorianTP_ResetAllCD();
+    </Binding>
+    <Binding name="TALORIAN_MODE_BUFF">
+        TalorianTP_SetMode("buffer");
+    </Binding>
+    <Binding name="TALORIAN_MODE_BANK">
+        TalorianTP_SetMode("bank");
+    </Binding>
+</Bindings>
