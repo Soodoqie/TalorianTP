@@ -1,5 +1,5 @@
 --[[
-    TalorianTP v4.2.2 (WoW Prime)
+    TalorianTP v4.2.3 (WoW Prime)
     Автоматический телепорт и помощник спутника Талориана.
     Полная поддержка кириллицы UTF-8, навигации по госсип-меню WoW Prime,
     проверенных иконок клиента, базы предметов TalorianLootDB и интеграции с AttuneAtlas.
@@ -1508,7 +1508,7 @@ local function ShowDestTooltip(btn)
                     if it.where == "petloot" then plCnt = plCnt + 1 end
                     if it.isBlacklisted then blCnt = blCnt + 1 end
                 end
-                local whereLbl = (plCnt > 0) and "  В наличии (вкл. Кладбошу):" or "  В наличии (сумки/экип./банк):"
+                local whereLbl = (plCnt > 0) and "  В наличии (включая Сборщик):" or "  В наличии (сумки/экип./банк):"
                 local blSuffix = (blCnt > 0) and (" |cffff6060(ЧС: " .. blCnt .. ")|r") or ""
                 GameTooltip:AddDoubleLine(
                     whereLbl,
@@ -3921,7 +3921,7 @@ SlashCmdList["TALORIANTP"] = function(msg)
             local par = ap.GetParagonInfo and ap:GetParagonInfo() or {}
             local sp = ap.GetPlayerSpecInfo and ap:GetPlayerSpecInfo() or {}
             local as = ap.GetAutoSwapSummary and ap:GetAutoSwapSummary() or {}
-            DEFAULT_CHAT_FRAME:AddMessage(string.format("%sКаталог: %d/%d (%d%%) | Акк:%d, Герой:%d | Парагон ур.%d (%d/%d) | Спек: %s | Автосвап ЧС: %d",
+            DEFAULT_CHAT_FRAME:AddMessage(string.format("%sКаталог: %d/%d (%d%%) | Аккаунт: %d, Герой: %d | Доп. уровень %d (%d/%d) | Спек: %s | Черный список автопродажи: %d",
                 ADDON_PREFIX, cat.doneBase or 0, cat.totalBase or 0, cat.pctBase or 0, cat.acc or 0, cat.hero or 0,
                 par.level or 0, par.curXP or 0, par.maxXP or 0, sp.specName or "?", as.blacklistCount or 0))
         end
@@ -5511,9 +5511,9 @@ do
             end
             if stk then
                 GameTooltip:AddLine(" ")
-                GameTooltip:AddDoubleLine("Запасы ковки:", string.format("Мерц: %d  Пыл: %d  Астр: %d  Сундуки: %d", stk.dustEpic or 0, stk.dustLeg or 0, stk.dustTit or 0, stk.titanBoxes or 0), 0.85, 0.85, 0.85, 1, 1, 1)
+                GameTooltip:AddDoubleLine("Запасы ковки:", string.format("Мерцающая: %d  Пылающая: %d  Астральная: %d  Сундуки: %d", stk.dustEpic or 0, stk.dustLeg or 0, stk.dustTit or 0, stk.titanBoxes or 0), 0.85, 0.85, 0.85, 1, 1, 1)
                 if (stk.epicToLeg or 0) > 0 or (stk.craftableTit or 0) > 0 then
-                    GameTooltip:AddDoubleLine("Обмен пыли 3:1:", string.format("->Пыл:+%d, ->Астр:+%d (Всего Титан: %d)", stk.epicToLeg or 0, stk.craftableTit or 0, stk.totalTitPotential or 0), 0.8, 0.85, 0.95, 0.3, 1, 0.85)
+                    GameTooltip:AddDoubleLine("Обмен пыли 3:1:", string.format("->Пылающая:+%d, ->Астральная:+%d (Всего Титаническая: %d)", stk.epicToLeg or 0, stk.craftableTit or 0, stk.totalTitPotential or 0), 0.8, 0.85, 0.95, 0.3, 1, 0.85)
                 end
                 if (stk.frostEmblem or 0) > 0 or (stk.frostFromLowerEmblems or 0) > 0 then
                     GameTooltip:AddDoubleLine("Эмблемы Льда:", string.format("%d (+%d из низших эмблем = %d)", stk.frostEmblem or 0, stk.frostFromLowerEmblems or 0, stk.totalFrostPotential or 0), 0.8, 0.85, 0.95, 0.65, 0.85, 1)
@@ -5530,14 +5530,14 @@ do
                 end
             end
             if par and par.loaded and (par.level or 0) > 0 then
-                GameTooltip:AddDoubleLine("Парагон:", string.format("Уровень %d (%d / %d XP, %d%%)", par.level, par.curXP or 0, par.maxXP or 0, par.pct or 0), 0.85, 0.85, 0.95, 1, 0.82, 0.3)
+                GameTooltip:AddDoubleLine("Доп. уровень:", string.format("Уровень %d (%d / %d XP, %d%%)", par.level, par.curXP or 0, par.maxXP or 0, par.pct or 0), 0.85, 0.85, 0.95, 1, 0.82, 0.3)
             end
             if sp and sp.specName and sp.specName ~= "" then
                 GameTooltip:AddDoubleLine("Специализация:", sp.specName .. (sp.isCustomLegion and " (Prime Legion)" or ""), 0.85, 0.85, 0.95, 0.75, 0.9, 1)
             end
             if as and (as.on ~= nil or (as.blacklistCount or 0) > 0) then
                 local stLbl = (as.on == true) and "|cff40ff40ВКЛ|r" or ((as.on == false) and "|cffff6060ВЫКЛ|r" or "?")
-                GameTooltip:AddDoubleLine("Автосвап:", string.format("%s | В черном списке: %d", stLbl, as.blacklistCount or 0), 0.85, 0.85, 0.95, 1, 1, 1)
+                GameTooltip:AddDoubleLine("Автопоглощение:", string.format("%s | В черном списке: %d", stLbl, as.blacklistCount or 0), 0.85, 0.85, 0.95, 1, 1, 1)
             end
             GameTooltip:Show()
         end)
@@ -5548,7 +5548,7 @@ do
             local ap = rawget(_G, "AttuneParser")
             local stk = (ap and ap.GetForgeMaterialStock) and ap:GetForgeMaterialStock() or nil
             local craftTag = (stk and (stk.craftableTit or 0) > 0) and string.format("(+%d)", stk.craftableTit) or ""
-            local stkStr = stk and string.format("  |cff94a3b8Пыль:|r |cffbb79e8М:%d|r |cffff8000П:%d|r |cff00ffccА:%d%s|r  |cff94a3b8Сундук:|r |cff00ffcc%d|r", stk.dustEpic or 0, stk.dustLeg or 0, stk.dustTit or 0, craftTag, stk.titanBoxes or 0) or ""
+            local stkStr = stk and string.format("  |cff94a3b8Пыль:|r |cffbb79e8Мерц:%d|r |cffff8000Пыл:%d|r |cff00ffccАстр:%d%s|r  |cff94a3b8Сундук:|r |cff00ffcc%d|r", stk.dustEpic or 0, stk.dustLeg or 0, stk.dustTit or 0, craftTag, stk.titanBoxes or 0) or ""
             if gift and gift.active then
                 local gCol = gift.isWednesday and "|cffbb79e8" or (gift.isThursday and "|cff40ff40") or (gift.isSaturday and "|cff38bdf8") or "|cffffd200"
                 local extra = ""
@@ -5726,7 +5726,7 @@ do
                         GameTooltip:AddLine("Дар Четверга: 100% возврат золота торговцу сегодня!", 0.2, 1, 0.4)
                     end
                     if ap and ap.IsItemBlacklisted and ap:IsItemBlacklisted(rd.itemId) then
-                        GameTooltip:AddLine("Предмет в черном списке Автосвапа!", 1, 0.4, 0.4)
+                        GameTooltip:AddLine("Предмет в черном списке автопродажи!", 1, 0.4, 0.4)
                     end
                     if rd.dest then
                         GameTooltip:AddLine("Клик: выбрать целью " .. rd.dest.name, 0.2, 1, 0.4)
@@ -6033,7 +6033,7 @@ do
                 end
                 local ap = rawget(_G, "AttuneParser")
                 if ap and ap.IsItemBlacklisted and ap:IsItemBlacklisted(cd.itemId, cd.lotTier) then
-                    GameTooltip:AddLine("Предмет в черном списке Автосвапа!", 1, 0.4, 0.4)
+                    GameTooltip:AddLine("Предмет в черном списке автопродажи!", 1, 0.4, 0.4)
                 end
                 if cd.primeRow then
                     GameTooltip:AddLine("Клик: открыть лоты | Shift+клик: ссылка", 0.4, 1, 0.5)
@@ -6601,7 +6601,7 @@ local RET_KINDS = {
 
 local PEPE_PERK_NAMES = {
     [2] = "+10% Маунт",
-    [5] = "+50% Восст. HP",
+    [5] = "+50% Восстановление HP",
     [6] = "-15% Угроза",
     [8] = "Двойной прыжок",
     [9] = "-25% Износ",
@@ -6680,14 +6680,14 @@ local function RunNextBuildStep()
     if InCombatLockdown and InCombatLockdown() then
         buildQueue = {}
         buildRunning = false
-        SetStatus("|cffff6060Билд прерван: бой!|r")
+        SetStatus("|cffff6060Смена набора прервана: бой!|r")
         return
     end
     local step = table.remove(buildQueue, 1)
     buildLastSend = GetTime()
     local ok, err = pcall(step.fn)
     if not ok and DEFAULT_CHAT_FRAME then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff5555[Talorian Билд]|r " .. tostring(err))
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff5555[Talorian Набор]|r " .. tostring(err))
     end
     if step.msg then SetStatus(step.msg) end
     if #buildQueue == 0 then
@@ -7018,7 +7018,7 @@ function SC:CaptureBuildPreset(idx, customName)
         sfV4 = sfV4,
     }
     db.buildPresets[idx] = preset
-    SetStatus(string.format("Билд #%d сохранен: %s | Пеарк: %d | Кузн.: %s",
+    SetStatus(string.format("Набор #%d сохранен: %s | Таланты: %d | Ковка: %s",
         idx, specTitle, #pearkIds, sfTree and (sfV2 .. "+" .. sfV4) or "-"))
     return preset
 end
@@ -7028,11 +7028,11 @@ function SC:ApplyBuildPreset(idx)
     local db = EnsureSCDB()
     local preset = db.buildPresets[idx]
     if not preset then
-        SetStatus("Билд #" .. idx .. " пуст - сначала сохраните его.")
+        SetStatus("Набор #" .. idx .. " пуст - сначала сохраните его.")
         return false
     end
     if InCombatLockdown and InCombatLockdown() then
-        SetStatus("|cffff6060Смена билда невозможна в бою!|r")
+        SetStatus("|cffff6060Смена набора невозможна в бою!|r")
         return false
     end
 
@@ -7043,7 +7043,7 @@ function SC:ApplyBuildPreset(idx)
         or (type(GetActiveTalentGroup) == "function" and GetActiveTalentGroup()) or 1
     if preset.specGroup and preset.specGroup ~= curSpec then
         buildQueue[#buildQueue + 1] = {
-            msg = "Переключение спека #" .. tostring(preset.specGroup) .. "...",
+            msg = "Переключение специализации #" .. tostring(preset.specGroup) .. "...",
             fn = function()
                 local cTal = rawget(_G, "C_Talent")
                 local hasCur = type(cTal) == "table" and type(cTal.GetSelectedCurrency) == "function" and cTal.GetSelectedCurrency()
@@ -7076,7 +7076,7 @@ function SC:ApplyBuildPreset(idx)
         table.sort(toOff)
         for _, sid in ipairs(toOff) do
             buildQueue[#buildQueue + 1] = {
-                msg = "Деактивация Peark #" .. sid .. "...",
+                msg = "Отключение таланта #" .. sid .. "...",
                 fn = function() SendSrv("ACMSG_PERK_DEACTIVATE", tostring(sid)) end,
             }
         end
@@ -7088,10 +7088,10 @@ function SC:ApplyBuildPreset(idx)
                 local needsOpt = reqOpts and reqOpts[sid]
                 local hasOpt = targOpts and (tonumber(targOpts[sid]) or 0) > 0
                 if needsOpt and not hasOpt then
-                    SetStatus("|cffffd200Пропуск перка #" .. sid .. ": выберите опцию в окне Peark.|r")
+                    SetStatus("|cffffd200Пропуск таланта #" .. sid .. ": выберите вариант в окне талантов.|r")
                 else
                     buildQueue[#buildQueue + 1] = {
-                        msg = "Активация Peark #" .. sid .. "...",
+                        msg = "Активация таланта #" .. sid .. "...",
                         fn = function() SendSrv("ACMSG_PERK_ACTIVATE", tostring(sid)) end,
                     }
                 end
@@ -7106,7 +7106,7 @@ function SC:ApplyBuildPreset(idx)
         local same = b and ((tonumber(b.v2) or 0) == (preset.sfV2 or 0)) and ((tonumber(b.v4) or 0) == (preset.sfV4 or 0))
         if not same then
             buildQueue[#buildQueue + 1] = {
-                msg = string.format("SetForge набор %d (%d+%d)...", preset.sfTree, preset.sfV2 or 0, preset.sfV4 or 0),
+                msg = string.format("Ковка: набор %d (%d+%d)...", preset.sfTree, preset.sfV2 or 0, preset.sfV4 or 0),
                 fn = function()
                     SendAddonWhisp("ACMSG_SFORGE_APPLY", string.format("%d %d %d", preset.sfTree, preset.sfV2 or 0, preset.sfV4 or 0))
                 end,
@@ -7115,7 +7115,7 @@ function SC:ApplyBuildPreset(idx)
     end
 
     if #buildQueue == 0 then
-        SetStatus("Билд #" .. idx .. " уже полностью активен.")
+        SetStatus("Набор #" .. idx .. " уже полностью активен.")
         return true
     end
     buildRunning = true
@@ -7614,7 +7614,7 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
     pepeInfo:SetJustifyV("TOP")
 
     local pepeToggleBtn = MakeBtn(c2, 8, -60, 124, 20, "Талисман: ?", "dark", function() SC:TogglePepeSummon() end)
-    local pepeMerchBtn = MakeBtn(c2, 136, -60, 124, 20, "Авто-торговля: ?", "dark", function()
+    local pepeMerchBtn = MakeBtn(c2, 136, -60, 124, 20, "Автопродажа: ?", "dark", function()
         local db = EnsureSCDB()
         db.autoPepeMerchant = not db.autoPepeMerchant
         NotifyUI()
@@ -7633,7 +7633,7 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
     dngHdr:SetPoint("TOPLEFT", 10, -162)
     dngHdr:SetText("|cffffd200Сложность данжей и автолут|r")
 
-    local tierNames = { "Обычный", "Эпический", "Легенд.", "Титан." }
+    local tierNames = { "Обычный", "Эпический", "Легендарный", "Титанический" }
     local tierBtns = {}
     for lv = 1, 4 do
         local col = (lv - 1) % 2
@@ -7739,7 +7739,7 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
         PS.PaintBtn(pepeToggleBtn, (SC.pepe.cur > 0) and "green" or "dark")
         pepeToggleBtn.txt:SetText("Талисман: " .. ((SC.pepe.cur > 0) and "ВКЛ" or "ВЫКЛ"))
         PS.PaintBtn(pepeMerchBtn, db.autoPepeMerchant and "green" or "dark")
-        pepeMerchBtn.txt:SetText("Авто-торг: " .. (db.autoPepeMerchant and "ВКЛ" or "ВЫКЛ"))
+        pepeMerchBtn.txt:SetText("Автопродажа: " .. (db.autoPepeMerchant and "ВКЛ" or "ВЫКЛ"))
 
         for lv = 1, 4 do
             PS.PaintBtn(tierBtns[lv], (SC.dung.tier == lv) and "gold" or "dark")
@@ -7772,8 +7772,8 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
             local p = db.buildPresets[idx]
             local row = buildRows[idx]
             if p then
-                row.lbl:SetText(string.format("|cff40ff40%s|r\nСпек #%d | Перки: %d шт | Ковка: %d+%d",
-                    tostring(p.name or ("Билд #" .. idx)), p.specGroup or 1, #(p.pearkSetIds or {}), p.sfV2 or 0, p.sfV4 or 0))
+                row.lbl:SetText(string.format("|cff40ff40%s|r\nСпек #%d | Таланты: %d шт | Ковка: %d+%d",
+                    tostring(p.name or ("Набор #" .. idx)), p.specGroup or 1, #(p.pearkSetIds or {}), p.sfV2 or 0, p.sfV4 or 0))
                 PS.PaintBtn(row.app, "green")
             else
                 row.lbl:SetText("|cff94a3b8Слот #" .. idx .. " пуст (настройте спек и сохраните)|r")
