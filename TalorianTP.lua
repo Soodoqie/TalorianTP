@@ -1,5 +1,5 @@
 --[[
-    TalorianTP v4.2.5 (WoW Prime)
+    TalorianTP v4.2.6 (WoW Prime)
     Автоматический телепорт и помощник спутника Талориана.
     Полная поддержка кириллицы UTF-8, навигации по госсип-меню WoW Prime,
     проверенных иконок клиента, базы предметов TalorianLootDB и интеграции с AttuneAtlas.
@@ -8,6 +8,7 @@
 TalorianTP = {}
 TalorianTP_DB = TalorianTP_DB or {}
 
+local MAIN_W = 896
 local ADDON_PREFIX = "|cff38bdf8[Talorian]|r "
 local mainUI = nil
 local noticeFrame = nil
@@ -16,6 +17,27 @@ local confirmTimer = 0
 local ICON_DIAMOND = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_3:14:14:0:0|t"
 local targetPollTimer = 0
 local targetPollElapsed = 0
+
+local raiseQueue = {}
+local raiseDriver = CreateFrame("Frame")
+raiseDriver:Hide()
+raiseDriver:SetScript("OnUpdate", function(self)
+    self:Hide()
+    for fr in pairs(raiseQueue) do
+        raiseQueue[fr] = nil
+        if fr and fr:IsShown() and type(fr.Raise) == "function" then
+            pcall(fr.Raise, fr)
+        end
+    end
+end)
+
+local function RaiseFrameFront(fr)
+    if not fr then return end
+    if type(fr.Raise) == "function" then pcall(fr.Raise, fr) end
+    raiseQueue[fr] = true
+    raiseDriver:Show()
+end
+TalorianTP.RaiseFrameFront = RaiseFrameFront
 
 BINDING_HEADER_TALORIAN_HEADER = "TalorianTP"
 BINDING_NAME_TALORIAN_TP_CURRENT = "Призвать и пометить Талориана"
@@ -1873,7 +1895,7 @@ local function InitTalorianUI()
     if mainUI then return mainUI end
 
     local f = CreateFrame("Frame", "TalorianMainFrame", UIParent)
-    f:SetSize(860, 578)
+    f:SetSize(MAIN_W, 578)
     f:SetScript("OnShow", function(self)
         SummonTalorianIfNeeded()
         if self._skipNextShowRefresh then
@@ -2573,17 +2595,17 @@ local function InitTalorianUI()
         end
     end
 
-    -- Вкладки категорий (Рейды, Подземелья, Столицы, Настройки, Спутники и Билды)
+    -- Вкладки категорий (Рейды, Подземелья, Столицы, Настройки, Спутники и Наборы)
     local capCount = #GetCurrentCapitalList()
     local tabDefs = {
         { id = 1, label = "Рейды (" .. #RAID_DESTS .. ")" },
         { id = 2, label = "Подземелья (52)" },
         { id = 3, label = "Столицы и VIP (" .. capCount .. ")" },
         { id = 4, label = "Настройки" },
-        { id = 5, label = "Спутники и Билды" },
+        { id = 5, label = "Спутники и Наборы" },
     }
     f.tabs = {}
-    local tabW = (860 - 32 - 16) / 5
+    local tabW = (MAIN_W - 32 - 16) / 5
     for i, td in ipairs(tabDefs) do
         local tab = CreateFrame("Button", nil, f)
         tab:SetSize(tabW, 26)
@@ -2623,7 +2645,7 @@ local function InitTalorianUI()
         { id = "Classic", label = "Классика (" .. cntC .. ")" },
     }
     f.raidEraBtns = {}
-    local rEraW = (860 - 32 - 12) / 4
+    local rEraW = (MAIN_W - 32 - 12) / 4
     for i, ed in ipairs(raidEraDefs) do
         local eBtn = CreateFrame("Button", nil, raidEraBar)
         eBtn:SetSize(rEraW, 22)
@@ -2671,7 +2693,7 @@ local function InitTalorianUI()
         { id = "Classic", label = "Классика (" .. #DUNGEONS_VANILLA .. ")" },
     }
     f.eraBtns = {}
-    local eraW = (860 - 32 - 8) / 3
+    local eraW = (MAIN_W - 32 - 8) / 3
     for i, ed in ipairs(eraDefs) do
         local eBtn = CreateFrame("Button", nil, dungeonEraBar)
         eBtn:SetSize(eraW, 22)
@@ -2714,7 +2736,7 @@ local function InitTalorianUI()
 
     local COLS = 3
     local ROWS = 8
-    local btnW = (860 - 32 - 16) / COLS
+    local btnW = (MAIN_W - 32 - 12) / COLS
     local btnH = 38
 
     f.destButtons = {}
@@ -2724,7 +2746,7 @@ local function InitTalorianUI()
 
         local btn = CreateFrame("Button", "TalorianDestBtn_" .. i, contentFrame, "SecureActionButtonTemplate")
         btn:SetSize(btnW, btnH)
-        btn:SetPoint("TOPLEFT", col * (btnW + 8), -row * (btnH + 7))
+        btn:SetPoint("TOPLEFT", col * (btnW + 6), -row * (btnH + 7))
         btn:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
 
         btn:SetAttribute("type", "macro")
@@ -2739,25 +2761,25 @@ local function InitTalorianUI()
 
         local t = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         t:SetPoint("TOPLEFT", ic, "TOPRIGHT", 6, -1)
-        t:SetPoint("RIGHT", btn, "RIGHT", -114, 0)
+        t:SetPoint("RIGHT", btn, "RIGHT", -96, 0)
         t:SetJustifyH("LEFT")
         if t.SetWordWrap then t:SetWordWrap(false) end
         btn.title = t
 
         local sub = btn:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         sub:SetPoint("BOTTOMLEFT", ic, "BOTTOMRIGHT", 6, 1)
-        sub:SetPoint("RIGHT", btn, "RIGHT", -114, 0)
+        sub:SetPoint("RIGHT", btn, "RIGHT", -96, 0)
         sub:SetJustifyH("LEFT")
         if sub.SetWordWrap then sub:SetWordWrap(false) end
         btn.subtitle = sub
 
         local statBadge = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        statBadge:SetPoint("TOPRIGHT", btn, "TOPRIGHT", -36, -4)
+        statBadge:SetPoint("TOPRIGHT", btn, "TOPRIGHT", -32, -4)
         statBadge:SetJustifyH("RIGHT")
         btn.statBadge = statBadge
 
         local badge = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        badge:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -36, 4)
+        badge:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -32, 4)
         badge:SetJustifyH("RIGHT")
         btn.badge = badge
 
@@ -2792,7 +2814,7 @@ local function InitTalorianUI()
 
         -- Кнопка создания/удаления макроса прямо на карточке (+M)
         local mBtn = CreateFrame("Button", nil, btn)
-        mBtn:SetSize(28, 20)
+        mBtn:SetSize(24, 18)
         mBtn:SetPoint("RIGHT", btn, "RIGHT", -5, 0)
         PS.StyleBtn(mBtn, "dark")
         local mTxt = mBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -2843,7 +2865,11 @@ local function InitTalorianUI()
             end
             if not mouseBtn or mouseBtn == "LeftButton" then
                 if IsShiftKeyDown() then
-                    if rawget(_G, "AttuneAtlas_Toggle") then AttuneAtlas_Toggle() end
+                    if rawget(_G, "AttuneAtlas_Toggle") then
+                        AttuneAtlas_Toggle()
+                        local af = rawget(_G, "AttuneAtlasFrame")
+                        if af and af:IsShown() then RaiseFrameFront(af) end
+                    end
                 else
                     if self.destData then
                         TalorianTP_SetTarget(self.destData.name)
@@ -3207,9 +3233,9 @@ local function InitTalorianUI()
 
                             if btn.statBadge then
                                 if remStats >= 1000 then
-                                    btn.statBadge:SetText(string.format("|cff38bdf8+%.1fк статов|r", remStats / 1000))
+                                    btn.statBadge:SetText(string.format("|cff38bdf8+%.1fк стат.|r", remStats / 1000))
                                 elseif remStats > 0 then
-                                    btn.statBadge:SetText(string.format("|cff38bdf8+%d статов|r", remStats))
+                                    btn.statBadge:SetText(string.format("|cff38bdf8+%d стат.|r", remStats))
                                 else
                                     btn.statBadge:SetText("")
                                 end
@@ -3225,6 +3251,20 @@ local function InitTalorianUI()
                     if btn.statBadge then btn.statBadge:SetText("") end
                     if btn.progBg then btn.progBg:Hide() end
                 end
+
+                -- Динамический правый отступ под ширину бейджей, чтобы длинные названия не обрезались раньше времени
+                local sTxt = btn.statBadge and btn.statBadge:GetText() or ""
+                local bTxt = btn.badge and btn.badge:GetText() or ""
+                local sW = (sTxt ~= "" and btn.statBadge.GetStringWidth and (btn.statBadge:GetStringWidth() or 0)) or 0
+                local bW = (bTxt ~= "" and btn.badge.GetStringWidth and (btn.badge:GetStringWidth() or 0)) or 0
+                local tPad = (sW > 0) and (36 + math.ceil(sW)) or 32
+                local bPad = (bW > 0) and (36 + math.ceil(bW)) or 32
+                btn.title:ClearAllPoints()
+                btn.title:SetPoint("TOPLEFT", btn.icon, "TOPRIGHT", 6, -1)
+                btn.title:SetPoint("RIGHT", btn, "RIGHT", -tPad, 0)
+                btn.subtitle:ClearAllPoints()
+                btn.subtitle:SetPoint("BOTTOMLEFT", btn.icon, "BOTTOMRIGHT", 6, 1)
+                btn.subtitle:SetPoint("RIGHT", btn, "RIGHT", -bPad, 0)
 
                 -- Индикатор макроса
                 local mTag = GetDestMacroTag(data.name)
@@ -3292,19 +3332,19 @@ local function InitTalorianUI()
     f.createDestMacroBtn = createDestMacroBtn
 
     local analysisBtn = CreateFrame("Button", nil, statusBar)
-    analysisBtn:SetSize(112, 22)
+    analysisBtn:SetSize(124, 22)
     analysisBtn:SetPoint("RIGHT", createDestMacroBtn, "LEFT", -6, 0)
     PS.StyleBtn(analysisBtn, "dark")
     local abTxt = analysisBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     abTxt:SetPoint("CENTER", 0, 0)
-    abTxt:SetText("|cfff7dfb5Анализ ковки|r")
+    abTxt:SetText("|cfff7dfb5Вещи по инстам|r")
     analysisBtn.txt = abTxt
     analysisBtn:SetScript("OnClick", function() if TalorianTP_ToggleAnalysisWindow then TalorianTP_ToggleAnalysisWindow() end end)
     analysisBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:ClearLines()
-        GameTooltip:AddLine("Анализ предметов и ковки", 1, 0.82, 0)
-        GameTooltip:AddLine("Мгновенный просмотр поглощенных вещей, сумок и стадий ковки (без подвисания).", 0.9, 0.9, 0.9, true)
+        GameTooltip:AddLine("Вещи по рейдам и подземельям", 1, 0.82, 0)
+        GameTooltip:AddLine("Интерактивный просмотр предметов инстов, статуса ковки, боссов, статов и ссылок в чат.", 0.9, 0.9, 0.9, true)
         GameTooltip:Show()
     end)
     analysisBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -3323,6 +3363,8 @@ local function InitTalorianUI()
         if mouseBtn == "RightButton" then
             if rawget(_G, "AttuneAtlas_Toggle") then
                 AttuneAtlas_Toggle()
+                local af = rawget(_G, "AttuneAtlasFrame")
+                if af and af:IsShown() then RaiseFrameFront(af) end
             elseif TalorianTP_ToggleTopWindow then
                 TalorianTP_ToggleTopWindow()
             else
@@ -3330,10 +3372,13 @@ local function InitTalorianUI()
             end
         elseif ap and type(ap.OpenUI) == "function" then
             ap:OpenUI("top")
+            RaiseFrameFront(rawget(_G, "AttuneParserFrame"))
         elseif TalorianTP_ToggleTopWindow then
             TalorianTP_ToggleTopWindow()
         elseif rawget(_G, "AttuneAtlas_Toggle") then
             AttuneAtlas_Toggle()
+            local af = rawget(_G, "AttuneAtlasFrame")
+            if af and af:IsShown() then RaiseFrameFront(af) end
         end
     end)
     atlasBtn:SetScript("OnEnter", function(self)
@@ -3377,6 +3422,7 @@ local function InitTalorianUI()
     f:SwitchTab(TalorianTP_DB and TalorianTP_DB.activeTab or 1)
 
     f._skipNextShowRefresh = true
+    f:HookScript("OnShow", function(self) RaiseFrameFront(self) end)
     f:Hide()
     mainUI = f
     return f
@@ -3390,6 +3436,7 @@ function TalorianTP:OpenUI(tabId)
         if ui.SwitchTab then ui:SwitchTab(tabId) end
     end
     ui:Show()
+    RaiseFrameFront(ui)
     return ui
 end
 
@@ -3784,7 +3831,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2)
         end
 
         local k = TalorianTP_DB.interactKey or "ъ"
-        DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "v4.2.5 загружен. Открыть: |cffffd200/ttp|r. Бинд взаимодействия: [|cffffffff" .. k .. "|r]")
+        DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "v4.2.6 загружен. Открыть: |cffffd200/ttp|r. Бинд взаимодействия: [|cffffffff" .. k .. "|r]")
     elseif event == "PLAYER_LOGIN" then
         pcall(EnsureAttuneParserBridge)
         CreateMinimapButton()
@@ -4982,326 +5029,1016 @@ function TalorianTP_ScanAbsorbedItems()
     return parsedData
 end
 
-local function RefreshAnalysisDisplay()
-    if not analysisFrame or not analysisFrame:IsShown() then return end
-
-    local d = parsedData
-    if (d.readyCount or 0) > 0 then
-        analysisFrame.statTotal:SetText(string.format("Найдено: |cff40ff40%d|r шт. (90%%: |cffffd200%d|r | К поглощению сейчас: |cff66ffcc%d шт.|r, +%s статов)", d.total, d.absorbedCount, d.readyCount, FormatStatValue(d.readyStats or 0)))
-    else
-        analysisFrame.statTotal:SetText(string.format("Найдено предметов: |cff40ff40%d|r шт. (Завершено 90%%: |cffffd200%d|r)", d.total, d.absorbedCount))
-    end
-    if analysisFrame.matText then
-        local ap = rawget(_G, "AttuneParser")
-        local stk = (ap and ap.GetForgeMaterialStock) and ap:GetForgeMaterialStock() or nil
-        if stk then
-            local craftNote = ((stk.craftableTit or 0) > 0)
-                and string.format(" |cff94a3b8(3:1->А:+%d, Всего:%d)|r", stk.craftableTit, stk.totalTitPotential or 0)
-                or ""
-            analysisFrame.matText:SetText(string.format("|cff94a3b8Пыль:|r |cffbb79e8М:%d|r |cffff8000П:%d|r |cff00ffccА:%d|r%s  |cff94a3b8Сундуки:|r |cff00ffcc%d|r",
-                stk.dustEpic or 0, stk.dustLeg or 0, stk.dustTit or 0, craftNote, stk.titanBoxes or 0))
-        else
-            analysisFrame.matText:SetText("")
-        end
-    end
-    analysisFrame.badgeTitanic:SetText(string.format("|cff00ffffТитанических: %d|r", d.titanic))
-    analysisFrame.badgeLegendary:SetText(string.format("|cffff8000Легендарных: %d|r", d.legendary))
-    analysisFrame.badgeEpic:SetText(string.format("|cffa335eeЭпических: %d|r", d.epic))
-    analysisFrame.badgeBasic:SetText(string.format("|cffffffffБез ковки: %d|r", d.basic))
-
-    -- Фильтрация списка
-    local filtered = {}
-    local currentHeader = nil
-    for _, row in ipairs(d.flatList) do
-        if row.isHeader then
-            currentHeader = row
-        else
-            local pass = false
-            if activeFilter == 0 then
-                pass = true
-            elseif activeFilter == 5 then
-                pass = row.isAbsorbed
-            elseif row.tier == activeFilter then
-                pass = true
-            end
-
-            if pass then
-                if currentHeader then
-                    table.insert(filtered, currentHeader)
-                    currentHeader = nil
-                end
-                table.insert(filtered, row)
-            end
-        end
-    end
-
-    local rows = analysisFrame.itemRows
-    local numRows = #rows
-    local offset = FauxScrollFrame_GetOffset(analysisFrame.scrollFrame) or 0
-    FauxScrollFrame_Update(analysisFrame.scrollFrame, #filtered, numRows, 22)
-
-    for i = 1, numRows do
-        local r = rows[i]
-        local idx = i + offset
-        if idx <= #filtered then
-            local data = filtered[idx]
-            if data.isHeader then
-                r.icon:Hide()
-                r.badge:Hide()
-                r.status:Hide()
-                r.name:SetPoint("LEFT", 8, 0)
-                r.name:SetText(string.format("|cffffd200=== Уровень %d (%d предметов) ===|r", data.level, data.count))
-                r.bg:SetTexture(0.24, 0.19, 0.10, 0.72)
-                r.itemLink = nil
-            else
-                r.icon:Show()
-                r.icon:SetTexture(data.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
-                r.badge:Show()
-                r.badge:SetText(string.format("|cff%s[%s]|r", data.tierCol, data.tierName))
-                r.status:Show()
-                if data.isAbsorbed then
-                    r.status:SetText("|cff40ff4090% (макс)|r")
-                elseif data.hasAbsorption then
-                    r.status:SetText(string.format("|cffffd200%d%%|r", data.pct or 0))
-                else
-                    r.status:SetText("|cff888888-|r")
-                end
-                r.name:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
-                local srcPrefix = data.sourceLabel and ("|cff38bdf8[" .. data.sourceLabel .. "]|r ") or ""
-                r.name:SetText(srcPrefix .. (data.name or ""))
-                r.bg:SetTexture(0.00, 0.00, 0.00, (i % 2 == 0) and 0.42 or 0.22)
-                r.itemLink = data.link
-            end
-            r:Show()
-        else
-            r:Hide()
-        end
-    end
-end
-
-local function CreateAnalysisWindow()
-    if analysisFrame then return analysisFrame end
-
-    local f = CreateFrame("Frame", "TalorianAnalysisFrame", UIParent)
-    f:SetSize(560, 480)
-    f:SetPoint("CENTER", 0, 0)
-    f:SetFrameStrata("MEDIUM")
-    f:SetToplevel(true)
-    f:SetClampedToScreen(true)
-    f:EnableMouse(true)
-    f:SetMovable(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", function(self) self:StartMoving() end)
-    f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
-    PS.ApplyWindow(f)
-    RegisterSpecialFrame("TalorianAnalysisFrame")
-
-    -- Заголовок
-    local title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    title:SetPoint("TOPLEFT", 16, -14)
-    title:SetText("|cfffce08cАнализ предметов и ковки (20% / 30% / 50% / 90%)|r")
-
-    -- Кнопка закрытия [X]
-    local closeBtn = CreateFrame("Button", nil, f)
-    closeBtn:SetSize(24, 24)
-    closeBtn:SetPoint("TOPRIGHT", -10, -10)
-    local cbTxt = closeBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    cbTxt:SetPoint("CENTER", 0, 0)
-    cbTxt:SetText("|cffff6060X|r")
-    PS.StyleClose(closeBtn, 24)
-    closeBtn:SetScript("OnClick", function() f:Hide() end)
-
-    -- Сводка статистики
-    local statTotal = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    statTotal:SetPoint("TOPLEFT", 16, -38)
-    statTotal:SetText("Найдено предметов: 0 шт.")
-    f.statTotal = statTotal
-
-    local badgeTitanic = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    badgeTitanic:SetPoint("TOPLEFT", 16, -58)
-    f.badgeTitanic = badgeTitanic
-
-    local badgeLegendary = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    badgeLegendary:SetPoint("LEFT", badgeTitanic, "RIGHT", 12, 0)
-    f.badgeLegendary = badgeLegendary
-
-    local badgeEpic = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    badgeEpic:SetPoint("LEFT", badgeLegendary, "RIGHT", 12, 0)
-    f.badgeEpic = badgeEpic
-
-    local badgeBasic = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    badgeBasic:SetPoint("LEFT", badgeEpic, "RIGHT", 12, 0)
-    f.badgeBasic = badgeBasic
-
-    -- Кнопки фильтра
-    local filterBar = CreateFrame("Frame", nil, f)
-    filterBar:SetPoint("TOPLEFT", 16, -78)
-    filterBar:SetSize(528, 24)
-
-    local filters = {
-        { name = "Все",       tier = 0 },
-        { name = "90% Макс",  tier = 5, col = "40ff40" },
-        { name = "Титанич.",  tier = 4, col = "00ffff" },
-        { name = "Легендар.", tier = 3, col = "ff8000" },
-        { name = "Эпическ.",  tier = 2, col = "a335ee" },
-        { name = "Без ковки", tier = 1, col = "ffffff" },
-    }
-    local fBtns = {}
-    local curLeft = 0
-    for _, fd in ipairs(filters) do
-        local btn = CreateFrame("Button", nil, filterBar)
-        btn:SetSize(84, 20)
-        btn:SetPoint("LEFT", curLeft, 0)
-        PS.StyleBtn(btn, "dark")
-        local bt = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        bt:SetPoint("CENTER", 0, 0)
-        local c = fd.col and ("|cff" .. fd.col) or "|cffffffff"
-        bt:SetText(c .. fd.name .. "|r")
-        btn.tier = fd.tier
-        btn:SetScript("OnClick", function()
-            activeFilter = fd.tier
-            for _, b in ipairs(fBtns) do
-                PS.PaintBtn(b, (b.tier == activeFilter) and "gold" or "dark")
-            end
-            RefreshAnalysisDisplay()
-        end)
-        table.insert(fBtns, btn)
-        curLeft = curLeft + 88
-    end
-    PS.PaintBtn(fBtns[1], "gold")
-
-    -- Контейнер скролла
-    local scrollBox = CreateFrame("Frame", nil, f)
-    scrollBox:SetPoint("TOPLEFT", 16, -106)
-    scrollBox:SetPoint("BOTTOMRIGHT", -36, 44)
-    PS.StyleBox(scrollBox, 0.42)
-
-    local sf = CreateFrame("ScrollFrame", "TalorianAnalysisScrollFrame", scrollBox, "FauxScrollFrameTemplate")
-    sf:SetPoint("TOPLEFT", 0, -2)
-    sf:SetPoint("BOTTOMRIGHT", -2, 2)
-    sf:SetScript("OnVerticalScroll", function(self, offset)
-        FauxScrollFrame_OnVerticalScroll(self, offset, 22, RefreshAnalysisDisplay)
-    end)
-    f.scrollFrame = sf
-
-    -- Создаем строки отображения
-    local rows = {}
-    for i = 1, 14 do
-        local r = CreateFrame("Frame", nil, scrollBox)
-        r:SetSize(490, 20)
-        r:SetPoint("TOPLEFT", 4, -(i - 1) * 22 - 4)
-
-        local rbg = r:CreateTexture(nil, "BACKGROUND")
-        rbg:SetAllPoints()
-        r.bg = rbg
-
-        local ric = r:CreateTexture(nil, "ARTWORK")
-        ric:SetSize(16, 16)
-        ric:SetPoint("LEFT", 4, 0)
-        r.icon = ric
-
-        local rname = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        rname:SetPoint("LEFT", ric, "RIGHT", 6, 0)
-        rname:SetWidth(250)
-        rname:SetJustifyH("LEFT")
-        if rname.SetWordWrap then rname:SetWordWrap(false) end
-        r.name = rname
-
-        local rbadge = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        rbadge:SetPoint("RIGHT", -76, 0)
-        rbadge:SetJustifyH("RIGHT")
-        r.badge = rbadge
-
-        local rstatus = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        rstatus:SetPoint("RIGHT", -6, 0)
-        rstatus:SetJustifyH("RIGHT")
-        r.status = rstatus
-
-        r:EnableMouse(true)
-        r:SetScript("OnEnter", function(self)
-            if self.itemLink then
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:SetHyperlink(self.itemLink)
-                GameTooltip:Show()
-            end
-        end)
-        r:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-        table.insert(rows, r)
-    end
-    f.itemRows = rows
-
-    -- Нижние кнопки
-    local scanBtn = CreateFrame("Button", nil, f)
-    scanBtn:SetSize(140, 24)
-    scanBtn:SetPoint("BOTTOMLEFT", 16, 12)
-    PS.StyleBtn(scanBtn, "dark")
-    local sbTxt = scanBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    sbTxt:SetPoint("CENTER", 0, 0)
-    sbTxt:SetText("|cfff7dfb5Обновить скан|r")
-    scanBtn:SetScript("OnClick", function()
-        TalorianTP_ScanAbsorbedItems()
-        RefreshAnalysisDisplay()
-        DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff38bdf8[TalorianTP]|r Анализ обновлен: |cff40ff40%d|r предм. (90%%: |cffffd200%d|r, |cff00ffffТитан: %d|r, |cffff8000Легенд: %d|r, |cffa335eeЭпик: %d|r, Без ковки: %d)",
-            parsedData.total, parsedData.absorbedCount, parsedData.titanic, parsedData.legendary, parsedData.epic, parsedData.basic))
-    end)
-
-    local chatBtn = CreateFrame("Button", nil, f)
-    chatBtn:SetSize(140, 24)
-    chatBtn:SetPoint("BOTTOMRIGHT", -16, 12)
-    PS.StyleBtn(chatBtn, "dark")
-    local cbTxt2 = chatBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    cbTxt2:SetPoint("CENTER", 0, 0)
-    cbTxt2:SetText("|cfff7dfb5Вывести в чат|r")
-    chatBtn:SetScript("OnClick", function()
-        TalorianTP_PrintAnalysisToChat()
-    end)
-
-    local matText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    matText:SetPoint("BOTTOM", 0, 18)
-    f.matText = matText
-
-    f:Hide()
-    analysisFrame = f
-    return f
-end
-
 function TalorianTP_PrintAnalysisToChat()
     local d = parsedData
     if d.total == 0 then
         d = TalorianTP_ScanAbsorbedItems()
     end
-    DEFAULT_CHAT_FRAME:AddMessage("|cff38bdf8[TalorianTP]|r Анализ предметов ковки и поглощения:")
+    DEFAULT_CHAT_FRAME:AddMessage("|cff38bdf8[TalorianTP]|r Сводка поглощения и ковки:")
     DEFAULT_CHAT_FRAME:AddMessage(string.format("  Всего найдено: |cff40ff40%d|r шт. (Завершено на Титаническом 90%%: |cffffd200%d|r)", d.total, d.absorbedCount))
-    DEFAULT_CHAT_FRAME:AddMessage(string.format("  |cff00ffffТитанических:|r %d | |cffff8000Легендарных:|r %d | |cffa335eeЭпических:|r %d | |cffffffffБез ковки:|r %d",
+    DEFAULT_CHAT_FRAME:AddMessage(string.format("  |cff00ffffТитанических:|r %d | |cffff8000Легендарных:|r %d | |cffa335eeЭпических:|r %d | |cffffffffОбычных:|r %d",
         d.titanic, d.legendary, d.epic, d.basic))
-
-    local lvls = {}
-    for lvl in pairs(d.byLevel) do table.insert(lvls, lvl) end
-    table.sort(lvls, function(a, b) return a > b end)
-    for _, lvl in ipairs(lvls) do
-        local count = #(d.byLevel[lvl] or {})
-        DEFAULT_CHAT_FRAME:AddMessage(string.format("  |cffffd200Уровень %d:|r %d предметов", lvl, count))
-    end
 end
 
-function TalorianTP_RefreshAnalysisLive()
-    if analysisFrame and analysisFrame:IsShown() then
-        TalorianTP_ScanAbsorbedItems()
-        RefreshAnalysisDisplay()
-    end
-end
+do
+    local EXP_KIND_BTNS = {
+        { id = "all",     label = "Все инсты",  w = 72 },
+        { id = "raid",    label = "Рейды (23)", w = 76 },
+        { id = "dungeon", label = "Данжи (52)", w = 76 },
+    }
+    local EXP_ERA_BTNS = {
+        { id = "all",     label = "Все эры", w = 62 },
+        { id = "WotLK",   label = "WotLK",   w = 50 },
+        { id = "TBC",     label = "TBC",     w = 42 },
+        { id = "Classic", label = "Классика", w = 66 },
+    }
+    local EXP_DIFF_BTNS = {
+        { id = 0, label = "Все реж.", w = 62 },
+        { id = 1, label = "10 об",    w = 48 },
+        { id = 2, label = "25 об",    w = 48 },
+        { id = 3, label = "10 гер",   w = 52 },
+        { id = 4, label = "25 гер",   w = 52 },
+    }
+    local EXP_STATUS_BTNS = {
+        { id = "need",  label = "Нужные",    w = 64 },
+        { id = "new",   label = "Новые",     w = 60 },
+        { id = "forge", label = "Ковка",     w = 58 },
+        { id = "owned", label = "В наличии", w = 78 },
+        { id = "done",  label = "Готово 90%", w = 84 },
+        { id = "all",   label = "Все",       w = 46 },
+    }
+    local DIFF_BITS = { [1] = 1, [2] = 2, [3] = 4, [4] = 8 }
+    local TIER_UI = {
+        [3] = { name = "Титанический", short = "Тит. 90%",    col = "00ffff", hex = "|cff00ffff" },
+        [2] = { name = "Легендарный", short = "Легенд. 50%", col = "ff8000", hex = "|cffff8000" },
+        [1] = { name = "Эпический",   short = "Эпик 30%",    col = "a335ee", hex = "|cffa335ee" },
+        [0] = { name = "Обычный",     short = "Обыч. 20%",   col = "ffd200", hex = "|cffffd200" },
+    }
+    local QUAL_HEX = {
+        [0] = "|cff9d9d9d", [1] = "|cffffffff", [2] = "|cff1eff00",
+        [3] = "|cff0070dd", [4] = "|cffa335ee", [5] = "|cffff8000", [6] = "|cffe6cc80",
+    }
+    local EXP_LABELS = { WotLK = "WotLK", TBC = "Burning Crusade", Classic = "Классика" }
+    local ZONE_ROW_H = 32
+    local ITEM_ROW_H = 34
+    local VIS_ZONES = 11
+    local VIS_ITEMS = 9
 
-function TalorianTP_ToggleAnalysisWindow()
-    if not analysisFrame then
-        CreateAnalysisWindow()
+    local expState = {
+        kind = "all",
+        era = "all",
+        diff = 0,
+        status = "need",
+        query = "",
+        selZoneName = nil,
+        zones = {},
+        items = {},
+        selMeta = nil,
+        ownedMap = {},
+    }
+
+    local function GetAllExplorerZones()
+        local out = {}
+        local pools = { RAID_DESTS, DUNGEONS_WOTLK, DUNGEONS_TBC, DUNGEONS_VANILLA }
+        for _, pool in ipairs(pools) do
+            for _, d in ipairs(pool) do
+                table.insert(out, d)
+            end
+        end
+        return out
     end
-    if analysisFrame:IsShown() then
-        analysisFrame:Hide()
-    else
-        TalorianTP_ScanAbsorbedItems()
-        analysisFrame:Show()
-        RefreshAnalysisDisplay()
+
+    local function BuildOwnedMap()
+        local owned = {}
+        local function mark(id, label)
+            if id and id > 0 and not owned[id] then owned[id] = label end
+        end
+        if type(GetInventoryItemLink) == "function" then
+            for slot = 1, 19 do
+                local link = GetInventoryItemLink("player", slot)
+                if link then mark(tonumber(link:match("item:(%d+)")), "Надето") end
+            end
+        end
+        if type(GetContainerNumSlots) == "function" and type(GetContainerItemLink) == "function" then
+            for bag = 0, 4 do
+                local n = GetContainerNumSlots(bag) or 0
+                for slot = 1, n do
+                    local link = GetContainerItemLink(bag, slot)
+                    if link then mark(tonumber(link:match("item:(%d+)")), "В сумке") end
+                end
+            end
+        end
+        local ap = rawget(_G, "AttuneParser")
+        local ib = (ap and ap.serverSync and ap.serverSync.ib and ap.serverSync.ib.items)
+            or (rawget(_G, "PRIME_ItemBank") and PRIME_ItemBank.items)
+        if type(ib) == "table" then
+            for _, row in pairs(ib) do
+                if type(row) == "table" and tonumber(row.entry) then
+                    mark(tonumber(row.entry), "Банк вещей")
+                end
+            end
+        end
+        local rb = (ap and ap.serverSync and ap.serverSync.rb and ap.serverSync.rb.contents)
+            or (rawget(_G, "ResourceBank") and ResourceBank.contents)
+        if type(rb) == "table" then
+            for id, cnt in pairs(rb) do
+                if (tonumber(cnt) or 0) > 0 then mark(tonumber(id), "Сборщик") end
+            end
+        end
+        if ap and type(ap.GetOwnedUpgradeCandidates) == "function" then
+            local ok, cands = pcall(ap.GetOwnedUpgradeCandidates, ap, nil, true)
+            if ok and type(cands) == "table" then
+                local wLbl = { equip = "Надето", bag = "В сумке", itembank = "Банк вещей", resourcebank = "Сборщик", bank = "Банк", guild = "Гильдбанк", petloot = "Спутник" }
+                for _, it in ipairs(cands) do
+                    if it.itemId then mark(it.itemId, wLbl[it.where or "bag"] or "В наличии") end
+                end
+            end
+        end
+        return owned
+    end
+
+    local function ExtractItemSourceText(ap, eid)
+        if not (ap and type(ap.GetItemSources) == "function") then return nil end
+        local ok, src = pcall(ap.GetItemSources, ap, eid)
+        if not ok or type(src) ~= "table" or type(src.list) ~= "table" or #src.list == 0 then
+            return nil
+        end
+        local first = src.list[1]
+        local nm = first.name and first.name ~= "" and first.name or nil
+        if first.st == 4 then
+            return "Квест: " .. (nm or ("#" .. tostring(first.smp or "")))
+        elseif nm then
+            local ch = (first.chance and first.chance > 0 and ap.FormatChance) and (" (" .. ap.FormatChance(first.chance) .. ")") or ""
+            return nm .. ch
+        end
+        return "Добыча / сундуки инста"
+    end
+
+    local function MatchesZoneDiff(dMask, effDiffId, maxDiffs, isSingleDiff)
+        if isSingleDiff or not effDiffId then return true end
+        if maxDiffs < effDiffId then return false end
+        if not dMask or dMask <= 0 then return true end
+        local needBit = DIFF_BITS[effDiffId]
+        if not needBit then return true end
+        if bit and bit.band then
+            return bit.band(dMask, needBit) ~= 0
+        end
+        return math.floor(dMask / needBit) % 2 == 1
+    end
+
+    local function CollectZoneItems(zoneDesc)
+        local ap = rawget(_G, "AttuneParser")
+        local items = {}
+        local owned = expState.ownedMap or {}
+        local effDiff = (expState.diff > 0) and expState.diff or nil
+        local stFilter = expState.status
+        local rawQ = (expState.query ~= "") and TalorianTP_Norm(expState.query) or nil
+        local zoneMatchedQuery = rawQ and zoneDesc and TalorianTP_Norm(zoneDesc.name .. " " .. (zoneDesc.short or "")):find(rawQ, 1, true)
+        local qNorm = (rawQ and not zoneMatchedQuery) and rawQ or nil
+
+        if not (ap and ap.Data and ap.Data.ZoneItems and zoneDesc and zoneDesc.attune) then
+            local targetZid = zoneDesc and zoneDesc.attune
+            local seen = {}
+            local ldbItems = _G.TalorianLootDB and _G.TalorianLootDB.InstanceItems
+            if ldbItems and targetZid then
+                for eid, zid in pairs(ldbItems) do
+                    if zid == targetZid then seen[eid] = true end
+                end
+            end
+            for eid, info in pairs(itemForgeCache) do
+                if info and targetZid and info.zoneId == targetZid then seen[eid] = true end
+            end
+            for eid in pairs(seen) do
+                local info = itemForgeCache[eid]
+                local gNm, gLk, gQ, gIl, _, _, _, _, _, gIc = GetItemInfo(eid)
+                local nm = gNm or ("Предмет #" .. eid)
+                local apiTier, apiAbs, apiPct = QueryCustomAttuneGlobalTier(eid, "item:" .. eid)
+                local effTier = math.max(info and info.tier or 1, apiTier or 1)
+                local isAbs = (info and info.absorbed) or (apiAbs and effTier >= 4) or (tonumber(apiPct) or 0) >= 90
+                local stCat = isAbs and "done" or ((effTier > 1 or apiAbs) and "forge" or "new")
+                local keep = (stFilter == "all")
+                    or (stFilter == "need" and stCat ~= "done")
+                    or (stFilter == "owned" and owned[eid] ~= nil)
+                    or (stCat == stFilter)
+                if keep and (not qNorm or TalorianTP_Norm(nm):find(qNorm, 1, true)) then
+                    table.insert(items, {
+                        id = eid, name = nm, ilvl = (info and info.ilvl) or gIl or 0, quality = gQ or 4,
+                        icon = gIc or "Interface\\Icons\\INV_Misc_QuestionMark",
+                        link = gLk or ("item:" .. eid .. ":0:0:0:0:0:0:0:80"), cat = stCat,
+                        doneTier = isAbs and 3 or math.max(0, effTier - 1),
+                        curPct = (info and info.pct) or apiPct or (isAbs and 90 or 0),
+                        remainStats = 0, ownedLabel = owned[eid], diffMask = 0,
+                    })
+                end
+            end
+            table.sort(items, function(a, b)
+                if a.cat ~= b.cat then return (a.cat == "new") or (a.cat == "forge" and b.cat == "done") end
+                if (a.ilvl or 0) ~= (b.ilvl or 0) then return (a.ilvl or 0) > (b.ilvl or 0) end
+                return (a.name or "") < (b.name or "")
+            end)
+            return items, nil
+        end
+
+        local topId = (ap.Data.TopMap and ap.Data.TopMap[zoneDesc.attune]) or zoneDesc.attune
+        local maxDiffs = ap.GetZoneMaxDiffs and ap:GetZoneMaxDiffs(topId, zoneDesc.isRaid, zoneDesc.exp) or 1
+        local isSingleDiff = (maxDiffs == 1)
+        local modeAvailable = isSingleDiff or (not effDiff) or (effDiff <= maxDiffs)
+        local za = ap:GetZoneAnalysis(zoneDesc.attune, {
+            diffId = effDiff, isRaid = zoneDesc.isRaid, exp = zoneDesc.exp, scope = "hero",
+        })
+        if not modeAvailable then return items, za end
+
+        local exclHeavy = (ap.GetSetting == nil) or (ap:GetSetting("excludeHeavyQuests") ~= false)
+        local srvItems = (ap.serverZoneItems and ap.serverZoneItems[topId]) or nil
+        local poolSet = {}
+        local staticList = ap.Data.ZoneItems[topId]
+        if staticList then
+            for _, eid in ipairs(staticList) do poolSet[eid] = true end
+        end
+        if srvItems then
+            for eid in pairs(srvItems) do poolSet[eid] = true end
+        end
+
+        for eid in pairs(poolSet) do
+            local srv = srvItems and srvItems[eid]
+            local sfx = (srv and srv.suffix) or 0
+            local rec = ap.ParseItemRecord and ap.ParseItemRecord(eid) or {}
+            local usable = (not ap.CanHeroAbsorb) or (ap:CanHeroAbsorb(eid) == true)
+            local skipHeavy = exclHeavy and ap.IsOnlyHeavyQuest and ap.IsOnlyHeavyQuest(eid)
+            local dMask = 1
+            if not isSingleDiff then
+                dMask = (srv and srv.modeMask and srv.modeMask > 0) and srv.modeMask or (rec.diffMask or 0)
+                if maxDiffs == 2 and dMask >= 4 then
+                    local c = 0
+                    if bit and bit.band then
+                        if bit.band(dMask, 1) ~= 0 or bit.band(dMask, 4) ~= 0 then c = c + 1 end
+                        if bit.band(dMask, 2) ~= 0 or bit.band(dMask, 8) ~= 0 then c = c + 2 end
+                    else
+                        c = (dMask >= 8) and 2 or 1
+                    end
+                    dMask = c
+                end
+            end
+
+            if usable and not skipHeavy and MatchesZoneDiff(dMask, effDiff, maxDiffs, isSingleDiff) then
+                local st = ap.GetItemServerStatus and ap:GetItemServerStatus(eid, sfx) or {}
+                local doneTier = st.doneTier or -1
+                local curPct = st.curPct or 0
+                local remainPct = st.remainPct or 0
+                local maxPct = st.maxPct or 90
+                local isDone = st.isCompleted == true
+                local isNew = st.isNew == true
+                local needsForge = st.needsForge == true
+                if srv and srv.absorbed and doneTier < 0 then
+                    doneTier = 0; curPct = 20; remainPct = maxPct - 20; isNew = false; needsForge = true; isDone = false
+                end
+
+                local cat = isDone and "done" or (needsForge and "forge" or "new")
+                local ownLbl = owned[eid]
+                local passSt = (stFilter == "all")
+                    or (stFilter == "need" and (cat == "new" or cat == "forge"))
+                    or (stFilter == "owned" and ownLbl ~= nil)
+                    or (cat == stFilter)
+
+                if passSt then
+                    local _, coreSum = 0, 0
+                    if ap.GetItemStats then _, coreSum = ap:GetItemStats(eid, sfx) end
+                    coreSum = coreSum or 0
+                    local remStats = isDone and 0 or math.floor(coreSum * ((isNew and maxPct or remainPct) / 100) + 0.5)
+                    local iName, iLink, iQual, iIlvl, iIcon
+                    if ap.GetItemInfo then
+                        local info = ap:GetItemInfo(eid, sfx)
+                        if type(info) == "table" then
+                            iName, iLink, iQual, iIlvl, iIcon = info.name, info.link, info.quality, info.ilvl, info.icon
+                        end
+                    end
+                    local gNm, gLk, gQ, gIl, _, _, _, _, _, gIc = GetItemInfo(eid)
+                    iName = gNm or iName or (rec.name and rec.name ~= "" and rec.name) or ("Предмет #" .. eid)
+                    iLink = gLk or iLink or ("item:" .. eid .. ":0:0:0:0:0:" .. tostring(sfx) .. ":0:80")
+                    iQual = gQ or iQual or rec.quality or 4
+                    iIlvl = (rec.ilvl and rec.ilvl > 0 and rec.ilvl) or gIl or iIlvl or 0
+                    iIcon = gIc or iIcon or "Interface\\Icons\\INV_Misc_QuestionMark"
+                    local dTag = (not isSingleDiff and not effDiff and ap.GetItemDiffTag)
+                        and ap:GetItemDiffTag(eid, topId, dMask, false) or ""
+                    local srcText = ExtractItemSourceText(ap, eid)
+
+                    local matchQ = true
+                    if qNorm then
+                        local hay = TalorianTP_Norm(iName .. " " .. (srcText or "") .. " " .. (dTag or ""))
+                        matchQ = hay:find(qNorm, 1, true) ~= nil
+                    end
+
+                    if matchQ then
+                        table.insert(items, {
+                            id = eid, sfx = sfx, name = iName, link = iLink, quality = iQual, ilvl = iIlvl,
+                            icon = iIcon, diffMask = dMask, diffTag = dTag, cat = cat, doneTier = doneTier,
+                            curPct = curPct, remainPct = remainPct, coreStats = coreSum, remainStats = remStats,
+                            ownedLabel = ownLbl, srcText = srcText, isRand = rec.hasRandomSuffix == true,
+                        })
+                    end
+                end
+            end
+        end
+
+        local orderRank = { new = 1, forge = 2, done = 3 }
+        table.sort(items, function(a, b)
+            local ra, rb = orderRank[a.cat] or 9, orderRank[b.cat] or 9
+            if ra ~= rb then return ra < rb end
+            if (a.ownedLabel and 1 or 0) ~= (b.ownedLabel and 1 or 0) then
+                return (a.ownedLabel ~= nil)
+            end
+            if a.remainStats ~= b.remainStats then return a.remainStats > b.remainStats end
+            if a.ilvl ~= b.ilvl then return a.ilvl > b.ilvl end
+            return (a.name or "") < (b.name or "")
+        end)
+
+        return items, za
+    end
+
+    local function RefreshExplorerItems()
+        if not analysisFrame or not analysisFrame:IsShown() then return end
+        local f = analysisFrame
+        local sel = nil
+        for _, z in ipairs(expState.zones) do
+            if z.dest.name == expState.selZoneName then sel = z; break end
+        end
+        if not sel and expState.zones[1] then
+            sel = expState.zones[1]
+            expState.selZoneName = sel.dest.name
+        end
+
+        local items, za = {}, nil
+        if sel then
+            items, za = CollectZoneItems(sel.dest)
+        end
+        expState.items = items
+        expState.selMeta = sel
+
+        -- Баннер выбранного инста
+        if sel then
+            local d = sel.dest
+            f.selIcon:SetTexture(ResolveIcon(d.icon))
+            f.selTitle:SetText("|cfffce08c" .. d.name .. "|r |cff94a3b8(" .. (d.isRaid and "Рейд" or "Подземелье") .. " - " .. (EXP_LABELS[d.exp] or d.exp or "") .. ")|r")
+            if za and za.modeAvailable == false then
+                f.selSub:SetText("|cffff7070Выбранная сложность отсутствует для этого инста|r")
+            elseif za and za.totalPool and za.totalPool > 0 then
+                local doneCnt = za.completedCount or 0
+                local pct = math.floor((doneCnt / za.totalPool) * 100 + 0.5)
+                local remSt = za.totalRemainStats or 0
+                f.selSub:SetText(string.format("Освоено: |cff40ff40%d/%d (%d%%)|r | Новых: |cff40ff40%d|r | Ковка: |cffffd200%d|r | Осталось: |cff38bdf8+%s стат.|r | Показано: |cffffffff%d|r",
+                    doneCnt, za.totalPool, pct, za.newCount or 0, za.forgeCount or 0, FormatStatValue(remSt), #items))
+            else
+                f.selSub:SetText(string.format("Показано предметов: |cffffffff%d|r", #items))
+            end
+
+            local curTgt = TalorianTP_DB and TalorianTP_DB.targetRaid
+            if curTgt == d.name then
+                PS.PaintBtn(f.targetBtn, "green")
+                f.targetBtn.txt:SetText("Выбрано целью")
+            else
+                PS.PaintBtn(f.targetBtn, "gold")
+                f.targetBtn.txt:SetText("Цель Талориана")
+            end
+        else
+            f.selIcon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+            f.selTitle:SetText("|cff94a3b8Нет подходящих инстов|r")
+            f.selSub:SetText("Измените фильтр эры, типа или поиска.")
+        end
+
+        local sf = f.itemScroll
+        local rows = f.itemRows
+        local offset = FauxScrollFrame_GetOffset(sf) or sf._offset or 0
+        FauxScrollFrame_Update(sf, #items, #rows, ITEM_ROW_H)
+
+        for i = 1, #rows do
+            local r = rows[i]
+            local it = items[i + offset]
+            if it then
+                r.itemData = it
+                r.zoneDest = sel and sel.dest or nil
+                r.icon:SetTexture(it.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+                local dStr = (it.diffTag and it.diffTag ~= "") and ("|cff94a3b8[" .. it.diffTag .. "]|r ") or ""
+                local ilStr = (it.ilvl and it.ilvl > 0) and (" |cff94a3b8[" .. it.ilvl .. "]|r") or ""
+                local ownStr = it.ownedLabel and (" |cff40ff80[" .. it.ownedLabel .. "]|r") or ""
+                local qCol = QUAL_HEX[it.quality or 4] or "|cffffffff"
+                r.name:SetText(dStr .. qCol .. (it.name or "?") .. "|r" .. ilStr .. ownStr)
+
+                local srcPart = it.srcText and ("|cffc8bea8" .. it.srcText .. "|r") or "|cff78716cИсточник уточняется...|r"
+                local statPart = (it.coreStats and it.coreStats > 0) and ("  |cff64748b(база статов: " .. FormatStatValue(it.coreStats) .. ")|r") or ""
+                r.source:SetText(srcPart .. statPart)
+
+                if it.cat == "done" then
+                    r.status:SetText("|cff00ffffТитанич. 90%|r")
+                    r.gain:SetText("|cff40ff40Готово|r")
+                elseif it.cat == "forge" then
+                    local ti = TIER_UI[it.doneTier or 0] or TIER_UI[0]
+                    r.status:SetText(ti.hex .. ti.short .. "|r -> |cff00ffff90%|r")
+                    r.gain:SetText((it.remainStats > 0) and ("|cffffd200+" .. FormatStatValue(it.remainStats) .. " стат.|r") or (it.isRand and "|cffaaaaaaсуффикс|r" or ""))
+                else
+                    r.status:SetText("|cff40ff40Новый (0%)|r")
+                    r.gain:SetText((it.remainStats > 0) and ("|cff38bdf8+" .. FormatStatValue(it.remainStats) .. " стат.|r") or (it.isRand and "|cffaaaaaaсуффикс|r" or ""))
+                end
+
+                r.bg:SetTexture(0.00, 0.00, 0.00, (i % 2 == 0) and 0.44 or 0.24)
+                r:Show()
+            else
+                r.itemData = nil
+                r.zoneDest = nil
+                r:Hide()
+            end
+        end
+    end
+
+    local function RenderZoneList()
+        if not analysisFrame or not analysisFrame:IsShown() then return end
+        local f = analysisFrame
+        local zones = expState.zones
+        local rows = f.zoneRows
+        local sf = f.zoneScroll
+        local offset = FauxScrollFrame_GetOffset(sf) or sf._offset or 0
+        FauxScrollFrame_Update(sf, #zones, #rows, ZONE_ROW_H)
+
+        for i = 1, #rows do
+            local r = rows[i]
+            local z = zones[i + offset]
+            if z then
+                r.zoneRec = z
+                local d = z.dest
+                r.icon:SetTexture(ResolveIcon(d.icon))
+                local isSel = (d.name == expState.selZoneName)
+                local kdTag = z.locked and " |cff40ff40[КД]|r" or ""
+                r.name:SetText((isSel and "|cffffd200" or "|cffe8dfc8") .. d.name .. "|r" .. kdTag)
+
+                if z.modeAvailable == false then
+                    r.sub:SetText("|cff666666Нет сложности|r")
+                    r.pctTxt:SetText("|cff666666-|r")
+                    r.fill:Hide()
+                elseif z.total > 0 then
+                    local pCol = (z.pct >= 100) and "|cff40ff40" or (z.pct >= 60 and "|cffa3e635" or "|cff60a5fa")
+                    local remTxt = (z.newCnt + z.forgeCnt == 0) and "|cff40ff40100%|r"
+                        or string.format("|cff40ff40%dн|r |cffffd200%dк|r", z.newCnt, z.forgeCnt)
+                    r.sub:SetText(string.format("%d/%d - %s", z.done, z.total, remTxt))
+                    r.pctTxt:SetText(string.format("%s%d%%|r", pCol, z.pct))
+                    local fw = math.max(1, math.floor((r._barW or 224) * math.min(100, z.pct) / 100))
+                    r.fill:SetWidth(fw)
+                    if z.pct >= 100 then r.fill:SetVertexColor(0.22, 0.88, 0.42, 0.9)
+                    elseif z.pct >= 50 then r.fill:SetVertexColor(0.95, 0.76, 0.20, 0.9)
+                    else r.fill:SetVertexColor(0.24, 0.68, 0.98, 0.9) end
+                    r.fill:Show()
+                else
+                    r.sub:SetText(d.exp or "")
+                    r.pctTxt:SetText("")
+                    r.fill:Hide()
+                end
+
+                if isSel then
+                    r:SetBackdropColor(0.20, 0.16, 0.08, 0.92)
+                    r:SetBackdropBorderColor(0.92, 0.74, 0.28, 0.95)
+                else
+                    r:SetBackdropColor(0.05, 0.05, 0.08, 0.55)
+                    r:SetBackdropBorderColor(0.24, 0.20, 0.14, 0.60)
+                end
+                r:Show()
+            else
+                r.zoneRec = nil
+                r:Hide()
+            end
+        end
+    end
+
+    local function RefreshExplorerAll(rescanOwned)
+        if not analysisFrame or not analysisFrame:IsShown() then return end
+        local f = analysisFrame
+        if rescanOwned ~= false then
+            expState.ownedMap = BuildOwnedMap()
+        end
+
+        local ap = rawget(_G, "AttuneParser")
+        local effDiff = (expState.diff > 0) and expState.diff or nil
+        local qNorm = (expState.query ~= "") and TalorianTP_Norm(expState.query) or nil
+        local allDests = GetAllExplorerZones()
+        local list = {}
+        local totDone, totPool, totNew, totForge, totStats = 0, 0, 0, 0, 0
+
+        for _, d in ipairs(allDests) do
+            local kOk = (expState.kind == "all")
+                or (expState.kind == "raid" and d.isRaid)
+                or (expState.kind == "dungeon" and not d.isRaid)
+            local eOk = (expState.era == "all") or (d.exp == expState.era)
+            if kOk and eOk then
+                local za = (ap and ap.GetZoneAnalysis and d.attune) and ap:GetZoneAnalysis(d.attune, {
+                    diffId = effDiff, isRaid = d.isRaid, exp = d.exp, scope = "hero",
+                }) or nil
+                local modeAvail = (not za) or (za.modeAvailable ~= false)
+                local done = (za and za.completedCount) or 0
+                local total = (za and za.totalPool) or 0
+                local newCnt = (za and za.newCount) or 0
+                local forgeCnt = (za and za.forgeCount) or 0
+                local pct = (total > 0) and math.floor((done / total) * 100 + 0.5) or 0
+                local remStats = (za and za.totalRemainStats) or 0
+
+                if not qNorm or TalorianTP_Norm(d.name .. " " .. (d.short or "")):find(qNorm, 1, true) or total > 0 then
+                    if modeAvail and total > 0 then
+                        totDone = totDone + done
+                        totPool = totPool + total
+                        totNew = totNew + newCnt
+                        totForge = totForge + forgeCnt
+                        totStats = totStats + remStats
+                    end
+                    table.insert(list, {
+                        dest = d, modeAvailable = modeAvail, done = done, total = total,
+                        newCnt = newCnt, forgeCnt = forgeCnt, pct = pct, remainStats = remStats,
+                        locked = IsInstanceLocked(d.name),
+                    })
+                end
+            end
+        end
+
+        -- Если при поиске введен текст названия инста, подберем подходящий инст
+        if qNorm then
+            local exactZone
+            for _, z in ipairs(list) do
+                if TalorianTP_Norm(z.dest.name .. " " .. (z.dest.short or "")):find(qNorm, 1, true) then
+                    exactZone = z.dest.name
+                    break
+                end
+            end
+            if exactZone and not TalorianTP_Norm(expState.selZoneName or ""):find(qNorm, 1, true) then
+                expState.selZoneName = exactZone
+            end
+        end
+        local selFound = false
+        for _, z in ipairs(list) do
+            if z.dest.name == expState.selZoneName then selFound = true; break end
+        end
+        if not selFound and list[1] then
+            expState.selZoneName = list[1].dest.name
+        end
+        expState.zones = list
+
+        for _, b in ipairs(f.kindBtns) do PS.PaintBtn(b, (b.id == expState.kind) and "gold" or "dark") end
+        for _, b in ipairs(f.eraBtns) do PS.PaintBtn(b, (b.id == expState.era) and "gold" or "dark") end
+        for _, b in ipairs(f.diffBtns) do
+            PS.PaintBtn(b, (b.id == expState.diff) and "gold" or "dark")
+            if b.id == 1 then b.txt:SetText((expState.kind == "dungeon") and "Обыч." or "10 об")
+            elseif b.id == 2 then b.txt:SetText((expState.kind == "dungeon") and "Героич." or "25 об") end
+        end
+        for _, b in ipairs(f.statusBtns) do PS.PaintBtn(b, (b.id == expState.status) and "gold" or "dark") end
+
+        if totPool > 0 then
+            local allPct = math.floor((totDone / totPool) * 100 + 0.5)
+            f.summaryTxt:SetText(string.format("Выборка: |cff40ff40%d/%d (%d%%)|r | Новых: |cff40ff40%d|r | Ковка: |cffffd200%d|r | Осталось: |cff38bdf8+%s стат.|r",
+                totDone, totPool, allPct, totNew, totForge, FormatStatValue(totStats)))
+        else
+            f.summaryTxt:SetText("Выберите рейд или подземелье слева для просмотра предметов и источников.")
+        end
+
+        RenderZoneList()
+        RefreshExplorerItems()
+    end
+
+    local function CreateFilterRow(parent, defs, curY, startX, onSelect)
+        local out = {}
+        local x = startX
+        for _, fd in ipairs(defs) do
+            local btn = CreateFrame("Button", nil, parent)
+            btn:SetSize(fd.w, 21)
+            btn:SetPoint("TOPLEFT", x, curY)
+            PS.StyleBtn(btn, "dark")
+            local bt = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            bt:SetPoint("CENTER", 0, 0)
+            bt:SetText(fd.label)
+            btn.txt = bt
+            btn.id = fd.id
+            btn:SetScript("OnClick", function() onSelect(fd.id) end)
+            table.insert(out, btn)
+            x = x + fd.w + 4
+        end
+        return out, x
+    end
+
+    local function CreateAnalysisWindow()
+        if analysisFrame then return analysisFrame end
+
+        local f = CreateFrame("Frame", "TalorianAnalysisFrame", UIParent)
+        f:SetSize(808, 554)
+        f:SetPoint("CENTER", 0, 0)
+        f:SetFrameStrata("MEDIUM")
+        f:SetToplevel(true)
+        f:SetClampedToScreen(true)
+        f:EnableMouse(true)
+        f:SetMovable(true)
+        f:RegisterForDrag("LeftButton")
+        f:SetScript("OnDragStart", function(self) self:StartMoving() end)
+        f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+        PS.ApplyWindow(f)
+        RegisterSpecialFrame("TalorianAnalysisFrame")
+        f:HookScript("OnShow", function(self)
+            PlaySound("igCharacterInfoOpen")
+            RaiseFrameFront(self)
+        end)
+
+        local title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        title:SetPoint("TOPLEFT", 16, -12)
+        title:SetText("|cfffce08cВещи по рейдам и подземельям|r")
+
+        local closeBtn = CreateFrame("Button", nil, f)
+        closeBtn:SetSize(24, 24)
+        closeBtn:SetPoint("TOPRIGHT", -10, -10)
+        local cbTxt = closeBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        cbTxt:SetPoint("CENTER", 0, 0)
+        cbTxt:SetText("|cffff6060X|r")
+        PS.StyleClose(closeBtn, 24)
+        closeBtn:SetScript("OnClick", function() f:Hide() end)
+
+        local refreshHdrBtn = CreateFrame("Button", nil, f)
+        refreshHdrBtn:SetSize(86, 22)
+        refreshHdrBtn:SetPoint("RIGHT", closeBtn, "LEFT", -6, 0)
+        PS.StyleBtn(refreshHdrBtn, "dark")
+        local rht = refreshHdrBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        rht:SetPoint("CENTER", 0, 0)
+        rht:SetText("Обновить")
+        refreshHdrBtn:SetScript("OnClick", function()
+            local ap = rawget(_G, "AttuneParser")
+            if ap and type(ap.InvalidateCaches) == "function" then ap:InvalidateCaches(true) end
+            TalorianTP_ScanAbsorbedItems()
+            RefreshExplorerAll(true)
+        end)
+
+        local chatBtn = CreateFrame("Button", nil, f)
+        chatBtn:SetSize(88, 22)
+        chatBtn:SetPoint("RIGHT", refreshHdrBtn, "LEFT", -6, 0)
+        PS.StyleBtn(chatBtn, "dark")
+        local cbt = chatBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        cbt:SetPoint("CENTER", 0, 0)
+        cbt:SetText("Сводка в чат")
+        chatBtn:SetScript("OnClick", function()
+            local sel = expState.selMeta
+            if not sel or not expState.items then
+                TalorianTP_PrintAnalysisToChat()
+                return
+            end
+            DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff38bdf8[Talorian]|r %s: %d/%d (%d%%) | Новых: %d | Ковка: %d (+%s стат.)",
+                sel.dest.name, sel.done, sel.total, sel.pct, sel.newCnt, sel.forgeCnt, FormatStatValue(sel.remainStats)))
+            local shown = 0
+            for _, it in ipairs(expState.items) do
+                if it.cat ~= "done" and shown < 5 then
+                    DEFAULT_CHAT_FRAME:AddMessage(string.format("  %s [%s] %s",
+                        it.link or it.name or "?",
+                        (it.cat == "new") and "Новый" or ((it.curPct or 20) .. "%% ковка"),
+                        it.srcText or ""))
+                    shown = shown + 1
+                end
+            end
+        end)
+
+        local summaryTxt = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        summaryTxt:SetPoint("TOPLEFT", 16, -33)
+        summaryTxt:SetPoint("RIGHT", -16, 0)
+        summaryTxt:SetJustifyH("LEFT")
+        f.summaryTxt = summaryTxt
+
+        -- Строки фильтров
+        local kindBtns, nextX = CreateFilterRow(f, EXP_KIND_BTNS, -52, 16, function(id)
+            expState.kind = id
+            RefreshExplorerAll(false)
+        end)
+        f.kindBtns = kindBtns
+
+        local eraBtns, eraEndX = CreateFilterRow(f, EXP_ERA_BTNS, -52, nextX + 8, function(id)
+            expState.era = id
+            RefreshExplorerAll(false)
+        end)
+        f.eraBtns = eraBtns
+
+        local diffBtns = CreateFilterRow(f, EXP_DIFF_BTNS, -52, eraEndX + 8, function(id)
+            expState.diff = id
+            RefreshExplorerAll(false)
+        end)
+        f.diffBtns = diffBtns
+
+        local statusBtns, stEndX = CreateFilterRow(f, EXP_STATUS_BTNS, -77, 16, function(id)
+            expState.status = id
+            if f.itemScroll then
+                f.itemScroll._offset = 0
+                if type(FauxScrollFrame_SetOffset) == "function" then FauxScrollFrame_SetOffset(f.itemScroll, 0) end
+            end
+            RefreshExplorerItems()
+        end)
+        f.statusBtns = statusBtns
+
+        -- Поле поиска
+        local searchEdit = CreateFrame("EditBox", "TalorianExplorerSearchBox", f)
+        searchEdit:SetSize(792 - (stEndX + 4), 21)
+        searchEdit:SetPoint("TOPLEFT", stEndX + 4, -77)
+        if searchEdit.SetAutoFocus then searchEdit:SetAutoFocus(false) end
+        if searchEdit.SetFontObject and GameFontHighlightSmall then searchEdit:SetFontObject(GameFontHighlightSmall) end
+        PS.StyleBox(searchEdit, 0.65)
+        if searchEdit.SetTextInsets then searchEdit:SetTextInsets(6, 20, 0, 0) end
+        local ph = searchEdit:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        ph:SetPoint("LEFT", 6, 0)
+        ph:SetText("Поиск вещи или инста...")
+        local clearSearchBtn = CreateFrame("Button", nil, searchEdit)
+        clearSearchBtn:SetSize(16, 16)
+        clearSearchBtn:SetPoint("RIGHT", -3, 0)
+        local csT = clearSearchBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        csT:SetPoint("CENTER", 0, 0)
+        csT:SetText("|cff94a3b8x|r")
+        clearSearchBtn:Hide()
+        clearSearchBtn:SetScript("OnClick", function()
+            searchEdit:SetText("")
+            expState.query = ""
+            ph:Show()
+            clearSearchBtn:Hide()
+            RefreshExplorerAll(false)
+        end)
+        searchEdit:SetScript("OnEscapePressed", function(self) if self.ClearFocus then self:ClearFocus() end end)
+        searchEdit:SetScript("OnTextChanged", function(self)
+            local txt = self:GetText() or ""
+            expState.query = txt
+            if txt ~= "" then ph:Hide(); clearSearchBtn:Show() else ph:Show(); clearSearchBtn:Hide() end
+            if f.itemScroll then
+                f.itemScroll._offset = 0
+                if type(FauxScrollFrame_SetOffset) == "function" then FauxScrollFrame_SetOffset(f.itemScroll, 0) end
+            end
+            RefreshExplorerAll(false)
+        end)
+        f:HookScript("OnHide", function()
+            if searchEdit.ClearFocus then searchEdit:ClearFocus() end
+            PlaySound("igCharacterInfoClose")
+        end)
+        f.searchEdit = searchEdit
+
+        -- Левая панель: список рейдов и подземелий
+        local leftBox = CreateFrame("Frame", nil, f)
+        leftBox:SetPoint("TOPLEFT", 16, -104)
+        leftBox:SetSize(256, 404)
+        PS.StyleBox(leftBox, 0.42)
+
+        local zsf = CreateFrame("ScrollFrame", "TalorianExplorerZoneScroll", leftBox, "FauxScrollFrameTemplate")
+        zsf:SetPoint("TOPLEFT", 2, -4)
+        zsf:SetPoint("BOTTOMRIGHT", -24, 4)
+        zsf._offset = 0
+        zsf:SetScript("OnVerticalScroll", function(self, offset)
+            FauxScrollFrame_OnVerticalScroll(self, offset, ZONE_ROW_H, RenderZoneList)
+        end)
+        f.zoneScroll = zsf
+
+        leftBox:EnableMouseWheel(true)
+        leftBox:SetScript("OnMouseWheel", function(_, delta)
+            local cur = FauxScrollFrame_GetOffset(zsf) or zsf._offset or 0
+            local maxOff = math.max(0, #(expState.zones or {}) - VIS_ZONES)
+            local nxt = math.max(0, math.min(maxOff, cur - delta))
+            zsf._offset = nxt
+            if type(FauxScrollFrame_SetOffset) == "function" then FauxScrollFrame_SetOffset(zsf, nxt) end
+            RenderZoneList()
+        end)
+
+        local zoneRows = {}
+        for i = 1, VIS_ZONES do
+            local r = CreateFrame("Button", nil, leftBox)
+            r:SetSize(226, ZONE_ROW_H - 2)
+            r:SetPoint("TOPLEFT", 4, -(i - 1) * ZONE_ROW_H - 4)
+            r:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+            local ic = r:CreateTexture(nil, "ARTWORK")
+            ic:SetSize(22, 22)
+            ic:SetPoint("LEFT", 4, 1)
+            ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            r.icon = ic
+
+            local nm = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            nm:SetPoint("TOPLEFT", ic, "TOPRIGHT", 5, 0)
+            nm:SetPoint("RIGHT", r, "RIGHT", -38, 0)
+            nm:SetJustifyH("LEFT")
+            if nm.SetWordWrap then nm:SetWordWrap(false) end
+            r.name = nm
+
+            local pt = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            pt:SetPoint("TOPRIGHT", -4, -3)
+            pt:SetJustifyH("RIGHT")
+            r.pctTxt = pt
+
+            local sub = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            sub:SetPoint("BOTTOMLEFT", ic, "BOTTOMRIGHT", 5, 1)
+            sub:SetPoint("RIGHT", r, "RIGHT", -4, 0)
+            sub:SetJustifyH("LEFT")
+            if sub.SetWordWrap then sub:SetWordWrap(false) end
+            r.sub = sub
+
+            local barBg = r:CreateTexture(nil, "BACKGROUND")
+            barBg:SetHeight(2)
+            barBg:SetPoint("BOTTOMLEFT", 2, 1)
+            barBg:SetPoint("BOTTOMRIGHT", -2, 1)
+            barBg:SetTexture(0.08, 0.08, 0.12, 0.9)
+            local fill = r:CreateTexture(nil, "ARTWORK")
+            fill:SetHeight(2)
+            fill:SetPoint("BOTTOMLEFT", 2, 1)
+            fill:SetTexture("Interface\\Buttons\\WHITE8X8")
+            r.fill = fill
+            r._barW = 222
+
+            r:RegisterForClicks("LeftButtonUp")
+            r:SetScript("OnClick", function(self)
+                if not self.zoneRec then return end
+                expState.selZoneName = self.zoneRec.dest.name
+                if f.itemScroll then
+                    f.itemScroll._offset = 0
+                    if type(FauxScrollFrame_SetOffset) == "function" then FauxScrollFrame_SetOffset(f.itemScroll, 0) end
+                end
+                RenderZoneList()
+                RefreshExplorerItems()
+            end)
+            zoneRows[i] = r
+        end
+        f.zoneRows = zoneRows
+
+        -- Правая панель: шапка выбранного инста + список вещей
+        local banner = CreateFrame("Frame", nil, f)
+        banner:SetPoint("TOPLEFT", leftBox, "TOPRIGHT", 8, 0)
+        banner:SetSize(512, 46)
+        PS.StyleBox(banner, 0.52)
+
+        local selIcon = banner:CreateTexture(nil, "ARTWORK")
+        selIcon:SetSize(32, 32)
+        selIcon:SetPoint("LEFT", 8, 0)
+        selIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        f.selIcon = selIcon
+
+        local targetBtn = CreateFrame("Button", nil, banner)
+        targetBtn:SetSize(118, 24)
+        targetBtn:SetPoint("RIGHT", -8, 0)
+        PS.StyleBtn(targetBtn, "gold")
+        local tbt = targetBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        tbt:SetPoint("CENTER", 0, 0)
+        tbt:SetText("Цель Талориана")
+        targetBtn.txt = tbt
+        targetBtn:SetScript("OnClick", function()
+            if expState.selZoneName and TalorianTP_SetTarget then
+                TalorianTP_SetTarget(expState.selZoneName)
+                RefreshExplorerItems()
+            end
+        end)
+        f.targetBtn = targetBtn
+
+        local selTitle = banner:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        selTitle:SetPoint("TOPLEFT", selIcon, "TOPRIGHT", 8, -2)
+        selTitle:SetPoint("RIGHT", targetBtn, "LEFT", -8, 0)
+        selTitle:SetJustifyH("LEFT")
+        if selTitle.SetWordWrap then selTitle:SetWordWrap(false) end
+        f.selTitle = selTitle
+
+        local selSub = banner:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        selSub:SetPoint("BOTTOMLEFT", selIcon, "BOTTOMRIGHT", 8, 2)
+        selSub:SetPoint("RIGHT", targetBtn, "LEFT", -8, 0)
+        selSub:SetJustifyH("LEFT")
+        if selSub.SetWordWrap then selSub:SetWordWrap(false) end
+        f.selSub = selSub
+
+        local rightBox = CreateFrame("Frame", nil, f)
+        rightBox:SetPoint("TOPLEFT", banner, "BOTTOMLEFT", 0, -6)
+        rightBox:SetPoint("BOTTOMRIGHT", -16, 46)
+        PS.StyleBox(rightBox, 0.42)
+
+        local isf = CreateFrame("ScrollFrame", "TalorianExplorerItemScroll", rightBox, "FauxScrollFrameTemplate")
+        isf:SetPoint("TOPLEFT", 2, -4)
+        isf:SetPoint("BOTTOMRIGHT", -24, 4)
+        isf._offset = 0
+        isf:SetScript("OnVerticalScroll", function(self, offset)
+            FauxScrollFrame_OnVerticalScroll(self, offset, ITEM_ROW_H, RefreshExplorerItems)
+        end)
+        f.itemScroll = isf
+
+        rightBox:EnableMouseWheel(true)
+        rightBox:SetScript("OnMouseWheel", function(_, delta)
+            local cur = FauxScrollFrame_GetOffset(isf) or isf._offset or 0
+            local maxOff = math.max(0, #(expState.items or {}) - VIS_ITEMS)
+            local nxt = math.max(0, math.min(maxOff, cur - delta))
+            isf._offset = nxt
+            if type(FauxScrollFrame_SetOffset) == "function" then FauxScrollFrame_SetOffset(isf, nxt) end
+            RefreshExplorerItems()
+        end)
+
+        local itemRows = {}
+        for i = 1, VIS_ITEMS do
+            local r = CreateFrame("Button", nil, rightBox)
+            r:SetSize(482, ITEM_ROW_H - 2)
+            r:SetPoint("TOPLEFT", 4, -(i - 1) * ITEM_ROW_H - 5)
+
+            local rbg = r:CreateTexture(nil, "BACKGROUND")
+            rbg:SetAllPoints()
+            r.bg = rbg
+
+            local ric = r:CreateTexture(nil, "ARTWORK")
+            ric:SetSize(26, 26)
+            ric:SetPoint("LEFT", 5, 0)
+            ric:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            r.icon = ric
+
+            local rname = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            rname:SetPoint("TOPLEFT", ric, "TOPRIGHT", 6, -1)
+            rname:SetPoint("RIGHT", r, "RIGHT", -124, 0)
+            rname:SetJustifyH("LEFT")
+            if rname.SetWordWrap then rname:SetWordWrap(false) end
+            r.name = rname
+
+            local rsrc = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            rsrc:SetPoint("BOTTOMLEFT", ric, "BOTTOMRIGHT", 6, 1)
+            rsrc:SetPoint("RIGHT", r, "RIGHT", -124, 0)
+            rsrc:SetJustifyH("LEFT")
+            if rsrc.SetWordWrap then rsrc:SetWordWrap(false) end
+            r.source = rsrc
+
+            local rstat = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            rstat:SetPoint("TOPRIGHT", -6, -3)
+            rstat:SetJustifyH("RIGHT")
+            r.status = rstat
+
+            local rgain = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            rgain:SetPoint("BOTTOMRIGHT", -6, 3)
+            rgain:SetJustifyH("RIGHT")
+            r.gain = rgain
+
+            r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+            r:SetScript("OnEnter", function(self)
+                local it = self.itemData
+                if not it then return end
+                self.bg:SetTexture(0.28, 0.22, 0.12, 0.85)
+                if InCombatLockdown and InCombatLockdown() then return end
+                local ap = rawget(_G, "AttuneParser")
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                if ap and type(ap.BuildItemTooltip) == "function" then
+                    local ex = it.ownedLabel and ("|cff40ff80Местонахождение: " .. it.ownedLabel .. "|r") or nil
+                    ap:BuildItemTooltip(GameTooltip, it.id, {
+                        link = it.link,
+                        zoneId = self.zoneDest and self.zoneDest.attune or nil,
+                        diffMask = it.diffMask,
+                        extraLine = ex,
+                        hint = "|cff94a3b8ЛКМ/Shift+ЛКМ: ссылка в чат | Ctrl+ЛКМ: примерить | ПКМ: боссы|r",
+                    })
+                elseif it.link then
+                    GameTooltip:ClearLines()
+                    pcall(GameTooltip.SetHyperlink, GameTooltip, it.link)
+                end
+                GameTooltip:Show()
+            end)
+            r:SetScript("OnLeave", function(self)
+                GameTooltip:Hide()
+                self.bg:SetTexture(0.00, 0.00, 0.00, (i % 2 == 0) and 0.44 or 0.24)
+            end)
+            r:SetScript("OnClick", function(self, mBtn)
+                local it = self.itemData
+                if not it then return end
+                if mBtn == "RightButton" then
+                    if it.srcText then
+                        DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff38bdf8[Talorian]|r %s - %s", it.link or it.name or "?", it.srcText))
+                    elseif rawget(_G, "AttuneAtlas_Toggle") then
+                        AttuneAtlas_Toggle()
+                        local af = rawget(_G, "AttuneAtlasFrame")
+                        if af and af:IsShown() then RaiseFrameFront(af) end
+                    end
+                    return
+                end
+                local ap = rawget(_G, "AttuneParser")
+                if IsControlKeyDown() and type(DressUpItemLink) == "function" and it.link then
+                    pcall(DressUpItemLink, it.link)
+                    local df = rawget(_G, "DressUpFrame")
+                    if df and df:IsShown() then RaiseFrameFront(df) end
+                elseif ap and type(ap.InsertItemLink) == "function" then
+                    ap:InsertItemLink(it.id, it.link, it.name, it.quality)
+                elseif it.link and type(ChatEdit_InsertLink) == "function" then
+                    ChatEdit_InsertLink(it.link)
+                end
+            end)
+            itemRows[i] = r
+        end
+        f.itemRows = itemRows
+
+        local footerTxt = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        footerTxt:SetPoint("BOTTOMLEFT", 16, 16)
+        footerTxt:SetText("|cff94a3b8Подсказка: наведите на вещь для подробностей | ЛКМ / Shift+ЛКМ: в чат | Ctrl+ЛКМ: примерить | ПКМ: источник|r")
+
+        f:Hide()
+        analysisFrame = f
+        return f
+    end
+
+    function TalorianTP_RefreshAnalysisLive()
+        if analysisFrame and analysisFrame:IsShown() then
+            RefreshExplorerAll(true)
+        end
+    end
+
+    function TalorianTP_ToggleAnalysisWindow()
+        local f = CreateAnalysisWindow()
+        if f:IsShown() then
+            f:Hide()
+        else
+            local curTgt = TalorianTP_DB and TalorianTP_DB.targetRaid
+            if curTgt then expState.selZoneName = curTgt end
+            f:Show()
+            RaiseFrameFront(f)
+            RefreshExplorerAll(true)
+        end
     end
 end
 
@@ -5570,6 +6307,8 @@ do
         openAtlasBtn:SetScript("OnClick", function()
             if rawget(_G, "AttuneAtlas_Toggle") then
                 AttuneAtlas_Toggle()
+                local af = rawget(_G, "AttuneAtlasFrame")
+                if af and af:IsShown() then RaiseFrameFront(af) end
             else
                 DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "Встроенный Атлас поглощения недоступен.")
             end
@@ -5990,6 +6729,7 @@ do
             f:Hide()
         else
             f:Show()
+            RaiseFrameFront(f)
             RefreshTopDisplay()
             local ap = rawget(_G, "AttuneParser")
             if ap and ap.QueuePriorityZonesSync and topMode ~= "noreq" then
@@ -6718,9 +7458,9 @@ end
 
 local function FormatShortNum(v)
     v = tonumber(v) or 0
-    if v >= 1e9 then return string.format("%.2fB", v / 1e9)
-    elseif v >= 1e6 then return string.format("%.2fM", v / 1e6)
-    elseif v >= 1e3 then return string.format("%.1fK", v / 1e3)
+    if v >= 1e9 then return string.format("%.2f млрд", v / 1e9)
+    elseif v >= 1e6 then return string.format("%.2f млн", v / 1e6)
+    elseif v >= 1e3 then return string.format("%.1f тыс.", v / 1e3)
     end
     return string.format("%.0f", v)
 end
@@ -6729,7 +7469,11 @@ local function FormatGold(copper)
     copper = math_floor(math_max(0, tonumber(copper) or 0))
     local g = math_floor(copper / 10000)
     local s = math_floor((copper % 10000) / 100)
-    return string.format("%dg %02ds", g, s)
+    local gs = tostring(g):reverse():gsub("(%d%d%d)", "%1 "):reverse():gsub("^%s+", "")
+    if s > 0 then
+        return string.format("%s зол. %02d сер.", gs, s)
+    end
+    return gs .. " зол."
 end
 
 local function NormGuidHex(g)
@@ -6793,6 +7537,42 @@ local PEPE_PERK_NAMES = {
     [19] = "2x Сбор и сундуки",
     [20] = "+10 мин Эликсиры",
 }
+local function ResolvePepeSkinName(skinIdx)
+    skinIdx = tonumber(skinIdx) or 0
+    if skinIdx <= 0 then return "|cff94a3b8снят|r" end
+    local pp = rawget(_G, "PrimePepe")
+    if type(pp) == "table" then
+        if type(pp.GetSkinName) == "function" then
+            local ok, res = pcall(pp.GetSkinName, skinIdx)
+            if ok and type(res) == "string" and res ~= "" then return res end
+        end
+        local tbl = pp.SKINS or pp.skins or pp.skinNames
+        if type(tbl) == "table" then
+            local entry = tbl[skinIdx] or tbl[skinIdx - 1]
+            local nm = type(entry) == "table" and (entry.name or entry.title or entry[1]) or entry
+            if type(nm) == "string" and nm ~= "" then return nm end
+        end
+    end
+    return "Облик #" .. skinIdx
+end
+
+local function ResolvePepePerkName(idx)
+    idx = tonumber(idx) or 0
+    local pp = rawget(_G, "PrimePepe")
+    if type(pp) == "table" then
+        if type(pp.GetPerkName) == "function" then
+            local ok, res = pcall(pp.GetPerkName, idx)
+            if ok and type(res) == "string" and res ~= "" then return res end
+        end
+        local tbl = pp.PERKS or pp.perks or pp.perkNames
+        if type(tbl) == "table" then
+            local entry = tbl[idx] or tbl[idx - 1]
+            local nm = type(entry) == "table" and (entry.name or entry.title or entry[1]) or entry
+            if type(nm) == "string" and nm ~= "" then return nm end
+        end
+    end
+    return PEPE_PERK_NAMES[idx] or ("Бонус #" .. idx)
+end
 local TRAVEL_PREF_ORDER = { 8, 18, 2, 19, 12, 14, 13, 4 }
 local MERCH_PREF_ORDER  = { 16, 11, 20, 9, 6, 5, 7, 15 }
 
@@ -6820,6 +7600,7 @@ end
 
 local function SetStatus(txt)
     SC.statusLine = txt or ""
+    SC.statusAt = (txt and txt ~= "") and GetTime() or 0
     NotifyUI()
 end
 
@@ -7698,7 +8479,7 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
     panel:Hide()
     SC.panel = panel
 
-    local colW, colH, gap = 270, 386, 9
+    local colW, colH, gap = 282, 386, 9
     local cols = {}
     for i = 1, 3 do
         local c = CreateFrame("Frame", nil, panel)
@@ -7709,7 +8490,7 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
     end
     local c1, c2, c3 = cols[1], cols[2], cols[3]
 
-    local function MakeBtn(p, x, y, w, h, label, kind, onClick)
+    local function MakeBtn(p, x, y, w, h, label, kind, onClick, tipTitle, tipBody)
         local b = CreateFrame("Button", nil, p)
         b:SetSize(w, h)
         b:SetPoint("TOPLEFT", p, "TOPLEFT", x, y)
@@ -7719,6 +8500,15 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
         fs:SetText(label)
         b.txt = fs
         if onClick then b:SetScript("OnClick", onClick) end
+        if tipTitle then
+            b:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                GameTooltip:SetText(tipTitle, 1, 0.82, 0)
+                if tipBody then GameTooltip:AddLine(tipBody, 0.9, 0.9, 0.9, true) end
+                GameTooltip:Show()
+            end)
+            b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        end
         return b
     end
 
@@ -7731,23 +8521,23 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
     for i, bf in ipairs(TAL_BUFFS) do
         local col = (i - 1) % 2
         local row = math_floor((i - 1) / 2)
-        local b = MakeBtn(c1, 8 + col * 128, -28 - row * 22, 124, 20, bf.label, "dark", function()
+        local b = MakeBtn(c1, 8 + col * 135, -28 - row * 22, 131, 20, bf.label, "dark", function()
             SC:ToggleTalBuffBit(bf.bit, bf.pal)
         end)
         buffBtns[i] = { btn = b, info = bf }
     end
 
-    local talAutoBtn = MakeBtn(c1, 8, -162, 124, 20, "Автобафф: ?", "dark", function()
+    local talAutoBtn = MakeBtn(c1, 8, -162, 131, 20, "Автобафф: ?", "dark", function()
         SC:SetTalAuto(not SC.tal.auto)
     end)
-    MakeBtn(c1, 136, -162, 124, 20, "Баффнуть сейчас", "green", function()
+    MakeBtn(c1, 143, -162, 131, 20, "Баффнуть сейчас", "green", function()
         SC:CastTalBuffNow()
     end)
 
-    local favBtn = MakeBtn(c1, 8, -185, 252, 20, "В избранное телепорта: ?", "dark", function()
+    local favBtn = MakeBtn(c1, 8, -185, 266, 20, "В избр.: ?", "dark", function()
         local cur = TalorianTP_DB and TalorianTP_DB.targetRaid
         if cur then SC:ToggleTalFav(cur) end
-    end)
+    end, "Избранный телепорт", "Добавить или убрать текущую выбранную цель из быстрого списка Талориана.")
 
     local retHdr = c1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     retHdr:SetPoint("TOPLEFT", 10, -214)
@@ -7757,15 +8547,15 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
     for i, rk in ipairs(RET_KINDS) do
         local col = (i - 1) % 2
         local row = math_floor((i - 1) / 2)
-        local b = MakeBtn(c1, 8 + col * 128, -232 - row * 22, 124, 20, rk.label .. ": ?", "dark", function()
+        local b = MakeBtn(c1, 8 + col * 135, -232 - row * 22, 131, 20, rk.label .. ": ?", "dark", function()
             SC:CycleRetinueSlot(rk.kind)
         end)
         retBtns[rk.kind] = { btn = b, label = rk.label }
     end
-    local retAutoBtn = MakeBtn(c1, 8, -276, 174, 20, "Автопризыв свиты: ?", "dark", function()
+    local retAutoBtn = MakeBtn(c1, 8, -276, 184, 20, "Автопризыв: ?", "dark", function()
         SC:ToggleRetResummon()
     end)
-    MakeBtn(c1, 186, -276, 74, 20, "Сброс", "dark", function() SC:ResetRetinue() end)
+    MakeBtn(c1, 196, -276, 78, 20, "Сброс", "dark", function() SC:ResetRetinue() end)
 
     local gvHdr = c1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     gvHdr:SetPoint("TOPLEFT", 10, -304)
@@ -7773,14 +8563,17 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
 
     local gvBalTxt = c1:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     gvBalTxt:SetPoint("TOPLEFT", 10, -322)
-    gvBalTxt:SetSize(250, 16)
+    gvBalTxt:SetSize(262, 16)
     gvBalTxt:SetJustifyH("LEFT")
 
-    MakeBtn(c1, 8, -340, 82, 20, "+1000г", "dark", function() SC:GoldVaultTransfer("dep", 1000 * 10000) end)
-    MakeBtn(c1, 93, -340, 96, 20, "+Сверх 5000г", "green", function() SC:GoldVaultTransfer("dep_excess", 0) end)
-    MakeBtn(c1, 192, -340, 68, 20, "-1000г", "dark", function() SC:GoldVaultTransfer("wd", 1000 * 10000) end)
+    MakeBtn(c1, 8, -340, 84, 20, "+1000 зол.", "dark", function() SC:GoldVaultTransfer("dep", 1000 * 10000) end,
+        "Пополнить сейф", "Перевести 1 000 золотых из сумок в личный сейф.")
+    MakeBtn(c1, 96, -340, 96, 20, "Сверх 5000", "green", function() SC:GoldVaultTransfer("dep_excess", 0) end,
+        "Сдать излишек", "Оставить в сумках ровно 5 000 золотых, остальное перевести в сейф.")
+    MakeBtn(c1, 196, -340, 78, 20, "-1000 зол.", "dark", function() SC:GoldVaultTransfer("wd", 1000 * 10000) end,
+        "Снять из сейфа", "Забрать 1 000 золотых из сейфа в сумки.")
 
-    MakeBtn(c1, 8, -362, 252, 18, "Обновить баланс и спутников", "dark", function() SC:RequestAllStates() end)
+    MakeBtn(c1, 8, -362, 266, 18, "Обновить баланс и спутников", "dark", function() SC:RequestAllStates() end)
 
     -- ==== COLUMN 2: Talisman Presets + Dungeon/Loot + Metrics ====
     local h2 = c2:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -7789,42 +8582,43 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
 
     local pepeInfo = c2:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     pepeInfo:SetPoint("TOPLEFT", 10, -26)
-    pepeInfo:SetSize(250, 32)
+    pepeInfo:SetSize(262, 32)
     pepeInfo:SetJustifyH("LEFT")
     pepeInfo:SetJustifyV("TOP")
 
-    local pepeToggleBtn = MakeBtn(c2, 8, -60, 124, 20, "Талисман: ?", "dark", function() SC:TogglePepeSummon() end)
-    local pepeMerchBtn = MakeBtn(c2, 136, -60, 124, 20, "Автопродажа: ?", "dark", function()
+    local pepeToggleBtn = MakeBtn(c2, 8, -60, 131, 20, "Талисман: ?", "dark", function() SC:TogglePepeSummon() end,
+        "Талисман (Пепе)", "Надеть или снять спутника с головы.")
+    local pepeMerchBtn = MakeBtn(c2, 143, -60, 131, 20, "У торговца: ?", "dark", function()
         local db = EnsureSCDB()
         db.autoPepeMerchant = not db.autoPepeMerchant
         NotifyUI()
-    end)
+    end, "Режим у торговца", "При открытии торговца временно переключает бонусы на «Торг и Ремонт» (-5% цен и -50% ремонта), а после закрытия возвращает прежние.")
 
-    MakeBtn(c2, 8, -84, 164, 20, "Набор: Путь и Фарм", "green", function() SC:ApplyPepePreset("travel") end)
-    MakeBtn(c2, 176, -84, 84, 20, "Сохранить", "dark", function() SC:SavePepePreset("travel") end)
+    MakeBtn(c2, 8, -84, 174, 20, "Набор: Путь и Фарм", "green", function() SC:ApplyPepePreset("travel") end)
+    MakeBtn(c2, 186, -84, 88, 20, "Сохранить", "dark", function() SC:SavePepePreset("travel") end)
 
-    MakeBtn(c2, 8, -108, 164, 20, "Набор: Торг и Ремонт", "green", function() SC:ApplyPepePreset("merchant") end)
-    MakeBtn(c2, 176, -108, 84, 20, "Сохранить", "dark", function() SC:SavePepePreset("merchant") end)
+    MakeBtn(c2, 8, -108, 174, 20, "Набор: Торг и Ремонт", "green", function() SC:ApplyPepePreset("merchant") end)
+    MakeBtn(c2, 186, -108, 88, 20, "Сохранить", "dark", function() SC:SavePepePreset("merchant") end)
 
-    MakeBtn(c2, 8, -132, 164, 20, "Набор: Свой #3", "dark", function() SC:ApplyPepePreset("custom") end)
-    MakeBtn(c2, 176, -132, 84, 20, "Сохранить", "dark", function() SC:SavePepePreset("custom") end)
+    MakeBtn(c2, 8, -132, 174, 20, "Набор: Свой #3", "dark", function() SC:ApplyPepePreset("custom") end)
+    MakeBtn(c2, 186, -132, 88, 20, "Сохранить", "dark", function() SC:SavePepePreset("custom") end)
 
     local dngHdr = c2:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     dngHdr:SetPoint("TOPLEFT", 10, -162)
-    dngHdr:SetText("|cffffd200Сложность данжей и автолут|r")
+    dngHdr:SetText("|cffffd200Сложность подземелий и автолут|r")
 
     local tierNames = { "Обычный", "Эпический", "Легендарный", "Титанический" }
     local tierBtns = {}
     for lv = 1, 4 do
         local col = (lv - 1) % 2
         local row = math_floor((lv - 1) / 2)
-        local b = MakeBtn(c2, 8 + col * 128, -180 - row * 22, 124, 20, lv .. ": " .. tierNames[lv], "dark", function()
+        local b = MakeBtn(c2, 8 + col * 135, -180 - row * 22, 131, 20, lv .. ": " .. tierNames[lv], "dark", function()
             SC:SetDungeonTier(lv)
         end)
         tierBtns[lv] = b
     end
-    local mythicBtn = MakeBtn(c2, 8, -226, 124, 20, "Эпохальный: ?", "dark", function() SC:ToggleMythic() end)
-    local aoeBtn = MakeBtn(c2, 136, -226, 124, 20, "Автосбор: ?", "dark", function() SC:ToggleAoELoot() end)
+    local mythicBtn = MakeBtn(c2, 8, -226, 131, 20, "Эпохальный: ?", "dark", function() SC:ToggleMythic() end)
+    local aoeBtn = MakeBtn(c2, 143, -226, 131, 20, "Автосбор: ?", "dark", function() SC:ToggleAoELoot() end)
 
     local mtrHdr = c2:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     mtrHdr:SetPoint("TOPLEFT", 10, -258)
@@ -7832,14 +8626,14 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
 
     local mtrTxt = c2:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     mtrTxt:SetPoint("TOPLEFT", 10, -278)
-    mtrTxt:SetSize(250, 96)
+    mtrTxt:SetSize(262, 96)
     mtrTxt:SetJustifyH("LEFT")
     mtrTxt:SetJustifyV("TOP")
 
     -- ==== COLUMN 3: Build Presets + 3D HUD ====
     local h3 = c3:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     h3:SetPoint("TOPLEFT", 10, -8)
-    h3:SetText("|cffffd200Пресеты талантов и билдов|r")
+    h3:SetText("|cffffd200Пресеты талантов и ковки|r")
 
     local buildRows = {}
     for idx = 1, 3 do
@@ -7847,12 +8641,12 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
         local lbl = c3:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         lbl.idx = idx
         lbl:SetPoint("TOPLEFT", 10, yBase)
-        lbl:SetSize(250, 26)
+        lbl:SetSize(262, 26)
         lbl:SetJustifyH("LEFT")
         lbl:SetJustifyV("TOP")
 
-        local appBtn = MakeBtn(c3, 8, yBase - 28, 124, 22, "Применить #" .. idx, "green", function() SC:ApplyBuildPreset(idx) end)
-        local savBtn = MakeBtn(c3, 136, yBase - 28, 124, 22, "Сохранить #" .. idx, "dark", function() SC:CaptureBuildPreset(idx) end)
+        local appBtn = MakeBtn(c3, 8, yBase - 28, 131, 22, "Применить #" .. idx, "green", function() SC:ApplyBuildPreset(idx) end)
+        local savBtn = MakeBtn(c3, 143, yBase - 28, 131, 22, "Сохранить #" .. idx, "dark", function() SC:CaptureBuildPreset(idx) end)
         buildRows[idx] = { lbl = lbl, app = appBtn, sav = savBtn }
     end
 
@@ -7860,24 +8654,24 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
     hudHdr:SetPoint("TOPLEFT", 10, -214)
     hudHdr:SetText("|cffffd200Указатель цели и подсветка|r")
 
-    local hudToggleBtn = MakeBtn(c3, 8, -234, 252, 22, "Стрелка к цели: ?", "dark", function()
+    local hudToggleBtn = MakeBtn(c3, 8, -234, 266, 22, "Стрелка к цели: ?", "dark", function()
         local db = EnsureSCDB()
         db.hudEnabled = not db.hudEnabled
         SC:UpdateHUDVisibility()
         NotifyUI()
     end)
-    local qncToggleBtn = MakeBtn(c3, 8, -260, 252, 22, "Подсветка цели и фокуса: ?", "dark", function()
+    local qncToggleBtn = MakeBtn(c3, 8, -260, 266, 22, "Подсветка цели и фокуса: ?", "dark", function()
         local db = EnsureSCDB()
         db.qncEnabled = not db.qncEnabled
         SC:RefreshQNCHighlight()
         NotifyUI()
     end)
-    MakeBtn(c3, 8, -286, 124, 20, "Поставить метку", "dark", function() SC:SetCustomPinHere() end)
-    MakeBtn(c3, 136, -286, 124, 20, "Снять метку", "dark", function() SC:ClearCustomPin() end)
+    MakeBtn(c3, 8, -286, 131, 20, "Поставить метку", "dark", function() SC:SetCustomPinHere() end)
+    MakeBtn(c3, 143, -286, 131, 20, "Снять метку", "dark", function() SC:ClearCustomPin() end)
 
     local scStatusTxt = c3:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     scStatusTxt:SetPoint("TOPLEFT", 10, -314)
-    scStatusTxt:SetSize(250, 62)
+    scStatusTxt:SetSize(262, 62)
     scStatusTxt:SetJustifyH("LEFT")
     scStatusTxt:SetJustifyV("TOP")
 
@@ -7895,7 +8689,7 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
         local curDest = (TalorianTP_DB and TalorianTP_DB.targetRaid) or "Цитадель Ледяной Короны"
         local isFav = SC.tal.fav[curDest] == true
         PS.PaintBtn(favBtn, isFav and "gold" or "dark")
-        favBtn.txt:SetText((isFav and "Убрать из избр.: " or "В избр.: ") .. Utf8CropChars(curDest, 20))
+        favBtn.txt:SetText((isFav and "Убрать из избр.: " or "В избр.: ") .. Utf8CropChars(curDest, 22))
 
         for k, entry in pairs(retBtns) do
             local sIdx = SC.ret.slots[k] or 0
@@ -7910,16 +8704,16 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
         local pActCnt = CountBits(SC.pepe.sel)
         local pNames = {}
         for i = 1, 21 do
-            if HasBit(SC.pepe.sel, i - 1) then pNames[#pNames + 1] = PEPE_PERK_NAMES[i] or ("#" .. i) end
+            if HasBit(SC.pepe.sel, i - 1) then pNames[#pNames + 1] = ResolvePepePerkName(i) end
         end
-        pepeInfo:SetText(string.format("Вид: %s | Бонусов: |cff40ff40%d/%d|r\n%s",
-            (SC.pepe.cur > 0) and ("#" .. SC.pepe.cur) or "|cff94a3b8снят|r",
+        pepeInfo:SetText(string.format("%s | Бонусов: |cff40ff40%d/%d|r\n%s",
+            ResolvePepeSkinName(SC.pepe.cur),
             pActCnt, SC.pepe.slots or 0,
-            (#pNames > 0) and Utf8CropChars(table.concat(pNames, ", "), 44) or "|cff94a3b8Нет активных бонусов|r"))
+            (#pNames > 0) and Utf8CropChars(table.concat(pNames, ", "), 46) or "|cff94a3b8Нет активных бонусов|r"))
         PS.PaintBtn(pepeToggleBtn, (SC.pepe.cur > 0) and "green" or "dark")
         pepeToggleBtn.txt:SetText("Талисман: " .. ((SC.pepe.cur > 0) and "ВКЛ" or "ВЫКЛ"))
         PS.PaintBtn(pepeMerchBtn, db.autoPepeMerchant and "green" or "dark")
-        pepeMerchBtn.txt:SetText("Автопродажа: " .. (db.autoPepeMerchant and "ВКЛ" or "ВЫКЛ"))
+        pepeMerchBtn.txt:SetText("У торговца: " .. (db.autoPepeMerchant and "ВКЛ" or "ВЫКЛ"))
 
         for lv = 1, 4 do
             PS.PaintBtn(tierBtns[lv], (SC.dung.tier == lv) and "gold" or "dark")
@@ -7956,7 +8750,7 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
                     tostring(p.name or ("Набор #" .. idx)), p.specGroup or 1, #(p.pearkSetIds or {}), p.sfV2 or 0, p.sfV4 or 0))
                 PS.PaintBtn(row.app, "green")
             else
-                row.lbl:SetText("|cff94a3b8Слот #" .. idx .. " пуст (настройте спек и сохраните)|r")
+                row.lbl:SetText("|cff94a3b8Слот #" .. idx .. " пуст (сохраните активный спек)|r")
                 PS.PaintBtn(row.app, "gray")
             end
         end
@@ -7966,7 +8760,11 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
         PS.PaintBtn(qncToggleBtn, db.qncEnabled and "green" or "dark")
         qncToggleBtn.txt:SetText("Подсветка цели: " .. (db.qncEnabled and "ВКЛ" or "ВЫКЛ"))
 
-        scStatusTxt:SetText((SC.statusLine ~= "" and SC.statusLine or "|cff94a3b8Готово. Своя метка: " .. (SC.hud.pin and "установлена" or "нет") .. "|r"))
+        if SC.statusAt and SC.statusAt > 0 and (GetTime() - SC.statusAt) > 10 then
+            SC.statusLine = ""
+            SC.statusAt = 0
+        end
+        scStatusTxt:SetText((SC.statusLine ~= "" and SC.statusLine or "|cff94a3b8Готово. Метка на карте: " .. (SC.hud.pin and "установлена" or "нет") .. "|r"))
     end
 
     return panel
