@@ -2,5 +2,7 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+dist/
+*.zip
 .DS_Store
 Thumbs.db

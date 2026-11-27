@@ -1,0 +1,33 @@
+name: Build & Publish Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Package TalorianTP addon zip
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          mkdir -p "dist/TalorianTP"
+          cp TalorianTP.toc TalorianTP.lua TalorianLootDB.lua Bindings.xml "dist/TalorianTP/"
+          (cd dist && zip -r "TalorianTP-${TAG}.zip" TalorianTP)
+
+      - name: Upload asset to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          ZIP_FILE="dist/TalorianTP-${TAG}.zip"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "TalorianTP $TAG" --generate-notes
+          fi
+          gh release upload "$TAG" "$ZIP_FILE" --clobber
