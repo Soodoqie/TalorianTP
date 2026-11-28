@@ -1,5 +1,5 @@
 --[[
-    TalorianTP v4.3.0 (WoW Prime)
+    TalorianTP v4.3.1 (WoW Prime)
     Автоматический телепорт и помощник спутника Талориана.
     Полная поддержка кириллицы UTF-8, навигации по госсип-меню WoW Prime,
     модульной настройки блоков UI, базы предметов TalorianLootDB и интеграции с AttuneParser.
@@ -8,7 +8,7 @@
 TalorianTP = {}
 TalorianTP_DB = TalorianTP_DB or {}
 
-local TALORIAN_VERSION = "4.3.0"
+local TALORIAN_VERSION = "4.3.1"
 TalorianTP.VERSION = TALORIAN_VERSION
 local MAIN_W = 896
 local ADDON_PREFIX = "|cff38bdf8[Talorian]|r "
@@ -9759,18 +9759,38 @@ function TTP.BuildServerCtrlPanel(parent, mainF)
     dngHdr:SetPoint("TOPLEFT", 10, -162)
     dngHdr:SetText("|cffffd200Сложность подземелий и автолут|r")
 
-    local tierNames = { "Обычный", "Эпический", "Легендарный", "Титанический" }
+    local tierNames = { "Необычная", "Эпическая", "Легендарная", "Титаническая" }
+    local tierTips = {
+        {
+            "|cff1eff001: Необычная сложность|r",
+            "Вы: урон -20%, получаемое исцеление -15%, |cff40ff40опыт +30%|r\nПротивники: здоровье x1.48, удар >= 18% (боссы 36%), крит +20% (боссы +24%).",
+        },
+        {
+            "|cffbb79e82: Эпическая сложность|r",
+            "Вы: урон -40%, укл/пар/блок -15, броня -15%, хил -30%, |cff40ff40опыт +60%|r\nПротивники: здоровье x2.18, удар >= 60% (боссы 120%), крит +33% (боссы +40%).",
+        },
+        {
+            "|cffff80003: Легендарная сложность|r",
+            "Вы: урон -60%, укл/пар/блок -40, броня -45%, хил -50%, |cff40ff40опыт +120%|r\nПротивники: здоровье x2.96, удар >= 90% (боссы 180%), крит +42% (боссы +50%).",
+        },
+        {
+            "|cff00ffcc4: Титаническая сложность|r",
+            "Вы: урон -75%, укл/пар/блок -75, броня -65%, хил -80%, |cff40ff40опыт +200%|r\nПротивники: здоровье x3.80, удар >= 118% (боссы 236%), крит +48% (боссы +57.6%).",
+        },
+    }
     local tierBtns = {}
     for lv = 1, 4 do
         local col = (lv - 1) % 2
         local row = math_floor((lv - 1) / 2)
         local b = MakeBtn(c2, 8 + col * 135, -180 - row * 22, 131, 20, lv .. ": " .. tierNames[lv], "dark", function()
             SC:SetDungeonTier(lv)
-        end)
+        end, tierTips[lv][1], tierTips[lv][2])
         tierBtns[lv] = b
     end
-    local mythicBtn = MakeBtn(c2, 8, -226, 131, 20, "Эпохальный: ?", "dark", function() SC:ToggleMythic() end)
-    local aoeBtn = MakeBtn(c2, 143, -226, 131, 20, "Автосбор: ?", "dark", function() SC:ToggleAoELoot() end)
+    local mythicBtn = MakeBtn(c2, 8, -226, 131, 20, "Эпохальный: ?", "dark", function() SC:ToggleMythic() end,
+        "Эпохальный режим", "Включает сложность подземелья для запуска ключей Mythic+ (вне группы и вне боя).")
+    local aoeBtn = MakeBtn(c2, 143, -226, 131, 20, "Автосбор: ?", "dark", function() SC:ToggleAoELoot() end,
+        "Автосбор добычи (AoE Loot)", "Включает или выключает автоматический сбор добычи со всех ближайших врагов.")
 
     local mtrHdr = c2:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     mtrHdr:SetPoint("TOPLEFT", 10, -258)
