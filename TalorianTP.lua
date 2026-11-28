@@ -1,5 +1,5 @@
 --[[
-    TalorianTP v4.3.1 (WoW Prime)
+    TalorianTP v4.3.2 (WoW Prime)
     Автоматический телепорт и помощник спутника Талориана.
     Полная поддержка кириллицы UTF-8, навигации по госсип-меню WoW Prime,
     модульной настройки блоков UI, базы предметов TalorianLootDB и интеграции с AttuneParser.
@@ -8,7 +8,7 @@
 TalorianTP = {}
 TalorianTP_DB = TalorianTP_DB or {}
 
-local TALORIAN_VERSION = "4.3.1"
+local TALORIAN_VERSION = "4.3.2"
 TalorianTP.VERSION = TALORIAN_VERSION
 local MAIN_W = 896
 local ADDON_PREFIX = "|cff38bdf8[Talorian]|r "
@@ -1357,7 +1357,7 @@ local function ProcessGossip()
     local exp = destInfo and destInfo.exp or (activeTab == 1 and "WotLK" or dungeonEra)
     local isRaid = destInfo and destInfo.isRaid
     if isRaid == nil then isRaid = (activeTab == 1) end
-    local isCapital = (activeTab == 3) or (destInfo and not destInfo.isRaid and not destInfo.achieve)
+    local isCapital = (destInfo ~= nil and not destInfo.isRaid and not destInfo.achieve) or (destInfo == nil and activeTab == 3)
 
     -- ШАГ 1: Прямое совпадение в текущем меню
     for i = 1, count, 2 do
@@ -1905,6 +1905,33 @@ do
             end
         end
 
+        local function layoutThumb()
+            local maxOff = math.max(0, (sf.total or 0) - visCount)
+            if maxOff <= 0 then
+                isDragging = false
+                bar:Hide()
+                return
+            end
+            bar:Show()
+            local bTop = bar.GetTop and bar:GetTop()
+            local bBot = bar.GetBottom and bar:GetBottom()
+            local bh = (bTop and bBot and (bTop > bBot)) and (bTop - bBot) or bar:GetHeight()
+            if not bh or bh <= 1 then bh = math.max(40, (listHeight or 100) - 4) end
+            local trackH = math.max(24, bh - (BTN_H * 2 + 4))
+            local thumbH = math.max(20, math.floor(trackH * (visCount / math.max(1, sf.total))))
+            if thumbH > trackH then thumbH = trackH end
+            local travel = math.max(0, trackH - thumbH)
+            sf._trackH = trackH
+            sf._thumbH = thumbH
+            sf._travel = travel
+            if thumb then
+                thumb:SetHeight(thumbH)
+                local yOff = math.floor(travel * (sf.offset / maxOff) + 0.5)
+                thumb:ClearAllPoints()
+                thumb:SetPoint("TOP", bar, "TOP", 0, -(BTN_H + 2 + yOff))
+            end
+        end
+
         local function clampAndRefresh(newOff)
             local maxOff = math.max(0, (sf.total or 0) - visCount)
             newOff = math.floor((newOff or 0) + 0.5)
@@ -1912,29 +1939,7 @@ do
             if newOff > maxOff then newOff = maxOff end
             sf.offset = newOff
             sf._offset = newOff
-            if maxOff <= 0 then
-                isDragging = false
-                bar:Hide()
-            else
-                bar:Show()
-                local bTop = bar.GetTop and bar:GetTop()
-                local bBot = bar.GetBottom and bar:GetBottom()
-                local bh = (bTop and bBot and (bTop > bBot)) and (bTop - bBot) or bar:GetHeight()
-                if not bh or bh <= 1 then bh = math.max(40, (listHeight or 100) - 4) end
-                local trackH = math.max(24, bh - (BTN_H * 2 + 4))
-                local thumbH = math.max(20, math.floor(trackH * (visCount / math.max(1, sf.total))))
-                if thumbH > trackH then thumbH = trackH end
-                local travel = math.max(0, trackH - thumbH)
-                sf._trackH = trackH
-                sf._thumbH = thumbH
-                sf._travel = travel
-                if thumb then
-                    thumb:SetHeight(thumbH)
-                    local yOff = (maxOff > 0) and math.floor(travel * (sf.offset / maxOff) + 0.5) or 0
-                    thumb:ClearAllPoints()
-                    thumb:SetPoint("TOP", bar, "TOP", 0, -(BTN_H + 2 + yOff))
-                end
-            end
+            layoutThumb()
             if onUpdateFn then onUpdateFn(sf.offset) end
         end
 
@@ -1975,7 +1980,8 @@ do
                 self:SetBackdropBorderColor(1.0, 0.86, 0.36, 1)
                 clampAndRefresh((sf.offset or 0) + self._step)
             end)
-            b:SetScript("OnMouseUp", function(self)
+            b:SetScript("OnMouseUp", function(self, mBtn)
+                if mBtn and mBtn ~= "LeftButton" then return end
                 self._held = false
                 self._holdT = 0
                 self._repT = 0
@@ -2022,7 +2028,8 @@ do
             isDragging = (cy ~= nil)
             paintThumb(true)
         end)
-        thumb:SetScript("OnMouseUp", function()
+        thumb:SetScript("OnMouseUp", function(_, mBtn)
+            if mBtn and mBtn ~= "LeftButton" then return end
             isDragging = false
             paintThumb(false)
         end)
@@ -2049,7 +2056,8 @@ do
                 clampAndRefresh((sf.offset or 0) + pg)
             end
         end)
-        bar:SetScript("OnMouseUp", function()
+        bar:SetScript("OnMouseUp", function(_, mBtn)
+            if mBtn and mBtn ~= "LeftButton" then return end
             isDragging = false
             paintThumb(false)
         end)
@@ -2057,11 +2065,24 @@ do
             isDragging = false
             up._held = false; up._mouseStepped = false; up._upAt = nil
             dn._held = false; dn._mouseStepped = false; dn._upAt = nil
+            up:SetBackdropBorderColor(0.58, 0.48, 0.25, 0.92)
+            dn:SetBackdropBorderColor(0.58, 0.48, 0.25, 0.92)
             paintThumb(false)
+        end)
+        bar:SetScript("OnSizeChanged", function()
+            if (sf.total or 0) > visCount then layoutThumb() end
         end)
         bar:SetScript("OnUpdate", function(_, elapsed)
             if not isDragging and not up._held and not dn._held and not up._mouseStepped and not dn._mouseStepped then
                 return
+            end
+            if (isDragging or up._held or dn._held) and type(IsMouseButtonDown) == "function" and not IsMouseButtonDown("LeftButton") then
+                isDragging = false
+                up._held = false
+                dn._held = false
+                up:SetBackdropBorderColor(0.58, 0.48, 0.25, 0.92)
+                dn:SetBackdropBorderColor(0.58, 0.48, 0.25, 0.92)
+                paintThumb(false)
             end
             local el = elapsed or 0
             if isDragging then
@@ -4548,6 +4569,11 @@ local function CreateMinimapButton()
     btn:SetScript("OnDragStart", function(self)
         self.isDragging = true
         self:SetScript("OnUpdate", function(self)
+            if type(IsMouseButtonDown) == "function" and not IsMouseButtonDown("LeftButton") then
+                self:SetScript("OnUpdate", nil)
+                self.isDragging = false
+                return
+            end
             local mx, my = Minimap:GetCenter()
             local cx, cy = GetCursorPosition()
             local scale = Minimap:GetEffectiveScale()
@@ -4565,10 +4591,15 @@ local function CreateMinimapButton()
         self.isDragging = false
     end)
 
+    btn:SetScript("OnHide", function(self)
+        self:SetScript("OnUpdate", nil)
+        self.isDragging = false
+    end)
+
     btn:SetScript("OnClick", function(self, mouseBtn)
         if self.isDragging then return end
         if mouseBtn == "LeftButton" then
-            if mainUI and mainUI:IsVisible() then mainUI:Hide() else InitTalorianUI():Show() end
+            if mainUI and mainUI:IsVisible() then mainUI:Hide() else TalorianTP:OpenUI() end
         elseif mouseBtn == "RightButton" then
             TalorianTP_DB.enabled = not TalorianTP_DB.enabled
             if not TalorianTP_DB.enabled then
@@ -4645,7 +4676,7 @@ local function EnsureAttuneParserBridge()
             if hoveredCardBtn and hoveredCardBtn:IsVisible() then
                 ShowDestTooltip(hoveredCardBtn)
             end
-            if analysisFrame and analysisFrame:IsShown() and TalorianTP_RefreshAnalysisLive then
+            if _G.TalorianAnalysisFrame and _G.TalorianAnalysisFrame:IsShown() and TalorianTP_RefreshAnalysisLive then
                 TalorianTP_RefreshAnalysisLive()
             end
             if _G.TalorianTopFrame and _G.TalorianTopFrame:IsShown() and TalorianTP_RefreshTopLive then
@@ -4756,7 +4787,7 @@ local function RegisterTalorianPrimeHub(forceKeep)
                 return (TalorianTP_DB and TalorianTP_DB.enabled) and "Активен" or "Выключен"
             end,
             open = function()
-                if mainUI and mainUI:IsVisible() then mainUI:Hide() else InitTalorianUI():Show() end
+                if mainUI and mainUI:IsVisible() then mainUI:Hide() else TalorianTP:OpenUI() end
             end,
         })
     end
@@ -4835,9 +4866,14 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2)
         ProcessGossip()
     elseif event == "MERCHANT_SHOW" then
         CheckAndMarkTalorian(false)
-    elseif event == "GOSSIP_CLOSED" or event == "GOSSIP_CONFIRM" then
+    elseif event == "GOSSIP_CLOSED" then
         isTeleporting = false
         confirmTimer = 0
+    elseif event == "GOSSIP_CONFIRM" then
+        if isTeleporting and AutoAcceptPopup() then
+            isTeleporting = false
+            confirmTimer = 0
+        end
     elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
         pcall(EnsureAttuneParserBridge)
         RefreshZoneSummaryCache()
@@ -5003,7 +5039,7 @@ SlashCmdList["TALORIANTP"] = function(msg)
                     DEFAULT_CHAT_FRAME:AddMessage(string.format("  |cffffd200#%d|r |cffffffff%s|r: |cff40ff40+%d новых|r (+%d статов сразу, макс +%d)", idx, z.zoneName, z.newCount or 0, z.newImmediateStats or 0, z.newMaxStats or 0))
                 end
             end
-            DEFAULT_CHAT_FRAME:AddMessage("|cffffd200=== ТОП ИНСТОВ: КОВКА ДО ТИТАНИЧЕСКОГО (90%%) ===|r")
+            DEFAULT_CHAT_FRAME:AddMessage("|cffffd200=== ТОП ИНСТОВ: КОВКА ДО ТИТАНИЧЕСКОГО (90%) ===|r")
             if #forgeRecs == 0 then
                 DEFAULT_CHAT_FRAME:AddMessage("  |cffaaaaaa(Все доступные предметы докачаны до Титанического)|r")
             else
@@ -5080,12 +5116,21 @@ SlashCmdList["TALORIANTP"] = function(msg)
         if ap and ap._hasStandaloneAuctionUI and ap.SetSetting then
             local nw = not ap:GetSetting("showAuctionUI")
             ap:SetSetting("showAuctionUI", nw)
+            if type(TalorianTP.SetBlockEnabled) == "function" then
+                TalorianTP:SetBlockEnabled("auctionTrade", nw, true)
+            end
             TalorianTP_DB.hideAuctionPanel = not nw
             DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "Панель ковки аукциона: " .. (nw and "|cff40ff40включена|r" or "|cffff6060скрыта|r"))
         else
-            TalorianTP_DB.hideAuctionPanel = not TalorianTP_DB.hideAuctionPanel
-            DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "Панель ковки аукциона: " .. (TalorianTP_DB.hideAuctionPanel and "|cffff6060скрыта|r" or "|cff40ff40включена|r"))
-            if TalorianTP_RefreshAuctionHelper then TalorianTP_RefreshAuctionHelper() end
+            local curOn = (type(TalorianTP.IsBlockEnabled) == "function" and TalorianTP:IsBlockEnabled("auctionTrade")) and (not TalorianTP_DB.hideAuctionPanel)
+            local nw = not curOn
+            TalorianTP_DB.hideAuctionPanel = not nw
+            if type(TalorianTP.SetBlockEnabled) == "function" then
+                TalorianTP:SetBlockEnabled("auctionTrade", nw)
+            elseif TalorianTP_RefreshAuctionHelper then
+                TalorianTP_RefreshAuctionHelper()
+            end
+            DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. "Панель ковки аукциона: " .. (nw and "|cff40ff40включена|r" or "|cffff6060скрыта|r"))
         end
         return
     elseif msg == "aucreset" then
@@ -5093,6 +5138,9 @@ SlashCmdList["TALORIANTP"] = function(msg)
         TalorianTP_DB = TalorianTP_DB or {}
         TalorianTP_DB.aucBtnPos = nil
         TalorianTP_DB.hideAuctionPanel = false
+        if type(TalorianTP.SetBlockEnabled) == "function" then
+            TalorianTP:SetBlockEnabled("auctionTrade", true)
+        end
         if ap and ap._hasStandaloneAuctionUI and ap.ResetAuctionPos then
             ap:SetSetting("showAuctionUI", true)
             ap:ResetAuctionPos()
@@ -5126,15 +5174,12 @@ SlashCmdList["TALORIANTP"] = function(msg)
         end
         return
     elseif msg == "show" then
-        local ui = InitTalorianUI()
-        ui:Show()
-        RaiseFrameFront(ui)
+        TalorianTP:OpenUI()
     elseif msg == "reset" then
         TalorianTP_DB = nil
         ReloadUI()
     else
-        local ui = InitTalorianUI()
-        if ui:IsShown() then ui:Hide() else ui:Show() end
+        if mainUI and mainUI:IsShown() then mainUI:Hide() else TalorianTP:OpenUI() end
     end
 end
 
@@ -6689,7 +6734,7 @@ do
                 if it.cat ~= "done" and shown < 5 then
                     DEFAULT_CHAT_FRAME:AddMessage(string.format("  %s [%s] %s",
                         it.link or it.name or "?",
-                        (it.cat == "new") and "Новый" or ((it.curPct or 20) .. "%% ковка"),
+                        (it.cat == "new") and "Новый" or ((it.curPct or 20) .. "% ковка"),
                         it.srcText or ""))
                     shown = shown + 1
                 end
@@ -7150,7 +7195,7 @@ do
                         and string.format("|cff40ff40Новый (%d%% -> 90%%)|r", it.newBasePct or 20)
                         or  string.format("|cffffd200Ковка (%s -> 90%%)|r", it.doneTierName or "")
                     if gift and gift.isThursday and srcMeta and srcMeta.hasVendor then
-                        stText = stText .. " |cff40ff40[100%%]|r"
+                        stText = stText .. " |cff40ff40[100%]|r"
                     end
                     if ap.IsItemBlacklisted and ap:IsItemBlacklisted(it.itemId) then
                         stText = stText .. " |cffff6060[ЧС]|r"
@@ -8195,6 +8240,11 @@ do
     end
 
     local function RefreshAuctionPanel()
+        if type(TalorianTP.IsBlockEnabled) == "function" and not TalorianTP:IsBlockEnabled("auctionTrade") then
+            if aucFrame then aucFrame:Hide() end
+            if aucBtn then aucBtn:Hide() end
+            return
+        end
         local anchor, isPrime = GetActiveAuctionAnchor()
         local isOpen = (anchor ~= nil) or aucOpenByEvent
         if not isOpen then
@@ -8913,6 +8963,7 @@ function SC:ApplyPepePreset(slotKey)
             end
         end
         SC:SendPepeQueued("set:" .. tostring(targetSkin))
+        SC.pepe.cur = targetSkin
     end
     SC:SendPepeQueued("perks:" .. tostring(safeMask))
     SC.pepe.sel = safeMask
@@ -9112,7 +9163,7 @@ function SC:ApplyBuildPreset(idx)
     if preset.sfTree ~= nil and ((preset.sfV2 or 0) > 0 or (preset.sfV4 or 0) > 0) then
         local sf = rawget(_G, "PRIME_SetForge")
         local b = (type(sf) == "table" and type(sf.branches) == "table") and sf.branches[preset.sfTree]
-        local same = b and ((tonumber(b.v2) or 0) == (preset.sfV2 or 0)) and ((tonumber(b.v4) or 0) == (preset.sfV4 or 0))
+        local same = b and (sf.activeTree == preset.sfTree) and ((tonumber(b.v2) or 0) == (preset.sfV2 or 0)) and ((tonumber(b.v4) or 0) == (preset.sfV4 or 0))
         if not same then
             buildQueue[#buildQueue + 1] = {
                 msg = string.format("Ковка: набор %d (%d+%d)...", preset.sfTree, preset.sfV2 or 0, preset.sfV4 or 0),
@@ -9137,6 +9188,8 @@ end
 -- 5. Track 4: Cooperative QNC Highlighter & 3D-HUD (QNP / QNW)
 ---------------------------------------------------------------------------
 local qncOrigMac = nil
+local qncFallbackOrig = nil
+local qncExternalRef = nil
 local qncMine, qncOther = "", ""
 local qncInCall = false
 local MAX_QNC_ENTRIES = 12
@@ -9187,12 +9240,27 @@ local function MergeQNC(other, mine)
     return table.concat(out, ";")
 end
 
+local function FinishQncForward(ok, ...)
+    qncInCall = false
+    if ok then return ... end
+    return nil
+end
+
 local function QNCWrapper(key, ...)
     if type(qncOrigMac) ~= "function" or qncOrigMac == QNCWrapper then
         return nil
     end
     if qncInCall then
-        return qncOrigMac(key, ...)
+        local baseFn = (type(qncFallbackOrig) == "function" and qncFallbackOrig ~= QNCWrapper and qncFallbackOrig ~= qncOrigMac) and qncFallbackOrig or nil
+        if qncOrigMac ~= baseFn then
+            qncExternalRef = qncOrigMac
+            _G.IsMacClient = qncExternalRef
+            qncOrigMac = baseFn
+        end
+        if baseFn then
+            return baseFn(key, ...)
+        end
+        return nil
     end
     if key == "QNC" then
         local val = select(1, ...)
@@ -9207,14 +9275,22 @@ local function QNCWrapper(key, ...)
         end
         return 0
     end
-    return qncOrigMac(key, ...)
+    qncInCall = true
+    return FinishQncForward(pcall(qncOrigMac, key, ...))
 end
 
 function SC:EnsureQNCWrapper()
     local cur = rawget(_G, "IsMacClient")
-    if type(cur) ~= "function" or cur == QNCWrapper then
+    if cur == QNCWrapper or (qncExternalRef and cur == qncExternalRef) then
         return type(qncOrigMac) == "function" and qncOrigMac ~= QNCWrapper
     end
+    if type(cur) ~= "function" then
+        return type(qncOrigMac) == "function" and qncOrigMac ~= QNCWrapper
+    end
+    if type(qncOrigMac) == "function" and qncOrigMac ~= QNCWrapper and cur ~= qncOrigMac then
+        qncFallbackOrig = qncOrigMac
+    end
+    qncExternalRef = nil
     qncOrigMac = cur
     _G.IsMacClient = QNCWrapper
     return true
@@ -9317,7 +9393,13 @@ function SC:SetCustomPinHere()
         return false
     end
     local pzSafe = IsFiniteNum(pz) and pz or 0
-    SC.hud.pin = { x = px, y = py, z = pzSafe, label = (type(GetSubZoneText) == "function" and GetSubZoneText()) or "Метка" }
+    local mapId = (type(GetCurrentMapAreaID) == "function") and GetCurrentMapAreaID() or nil
+    local instType = (type(IsInInstance) == "function") and select(2, IsInInstance()) or nil
+    SC.hud.pin = {
+        x = px, y = py, z = pzSafe,
+        mapId = mapId, instType = instType,
+        label = (type(GetSubZoneText) == "function" and GetSubZoneText()) or "Метка",
+    }
     EnsureSCDB().hudEnabled = true
     SC:UpdateHUDVisibility()
     SetStatus(string.format("3D метка поставлена (%.1f, %.1f).", px, py))
@@ -9413,6 +9495,7 @@ end
 ---------------------------------------------------------------------------
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_LOGIN")
+ev:RegisterEvent("PLAYER_ENTERING_WORLD")
 ev:RegisterEvent("PLAYER_TARGET_CHANGED")
 ev:RegisterEvent("PLAYER_FOCUS_CHANGED")
 ev:RegisterEvent("PLAYER_REGEN_DISABLED")
@@ -9425,6 +9508,14 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
         SC:RequestAllStates()
         SC:UpdateHUDVisibility()
         SC:RefreshQNCHighlight()
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        if SC.hud and SC.hud.pin then
+            local curMap = (type(GetCurrentMapAreaID) == "function") and GetCurrentMapAreaID() or nil
+            local curInst = (type(IsInInstance) == "function") and select(2, IsInInstance()) or nil
+            if SC.hud.pin.instType ~= curInst or (curMap ~= nil and SC.hud.pin.mapId ~= nil and curMap ~= SC.hud.pin.mapId) then
+                SC:ClearCustomPin()
+            end
+        end
     elseif event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_FOCUS_CHANGED" then
         SC:RefreshQNCHighlight()
         if hudFrame and hudFrame:IsShown() then SC:UpdateHUDTick() end
@@ -9434,8 +9525,10 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
     elseif event == "MERCHANT_SHOW" then
         local db = EnsureSCDB()
         if db.autoPepeMerchant and not (InCombatLockdown and InCombatLockdown()) and (SC.pepe.mask or 0) > 0 then
-            SC.pepe.lastMerchSwap = SC.pepe.sel
-            SC.pepe.lastMerchWasOff = ((SC.pepe.cur or 0) == 0)
+            if SC.pepe.lastMerchSwap == nil then
+                SC.pepe.lastMerchSwap = SC.pepe.sel
+                SC.pepe.lastMerchWasOff = ((SC.pepe.cur or 0) == 0)
+            end
             SC:ApplyPepePreset("merchant")
         end
     elseif event == "MERCHANT_CLOSED" then
@@ -9446,6 +9539,7 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
             SC.pepe.lastMerchSwap = nil
             SC.pepe.lastMerchWasOff = nil
             SC:SendPepeQueued("perks:" .. tostring(prev))
+            SC.pepe.sel = prev
             if wasOff then
                 SC:SendPepeQueued("off")
                 SC.pepe.cur = 0
@@ -9974,6 +10068,7 @@ do
                 local db = EnsureSCDB()
                 db.hudEnabled = not db.hudEnabled
                 SC:UpdateHUDVisibility()
+                NotifyUI()
                 if DEFAULT_CHAT_FRAME then
                     DEFAULT_CHAT_FRAME:AddMessage("|cff38bdf8[Talorian]|r Указатель цели: " .. (db.hudEnabled and "ВКЛ" or "ВЫКЛ"))
                 end
@@ -9982,10 +10077,6 @@ do
             return origSlash(msg)
         end
     end
-end
-
-if type(TalorianTP.EnsureAttuneParserBridge) == "function" then
-    pcall(TalorianTP.EnsureAttuneParserBridge)
 end
 
 end
